@@ -1,0 +1,12 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <RootNamespace>Hardcodet.Wpf.TaskbarNotification</RootNamespace>
+    <AssemblyName>Hardcodet.NotifyIcon.Wpf</AssemblyName>
+    <AssemblyTitle>NotifyIcon for WPF</AssemblyTitle>
+    <Product>NotifyIcon WPF</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="Diagrams\TaskbarIcon Overview.cd" />
+  </ItemGroup>
+</Project>

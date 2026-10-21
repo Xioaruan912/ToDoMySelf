@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: User guide
+    url: https://github.com/snownico0722/PaperTodo/blob/main/doc/USER_GUIDE.md
+    about: Check the user guide before reporting a usage question.

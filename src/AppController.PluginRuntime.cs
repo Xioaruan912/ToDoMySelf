@@ -1,0 +1,643 @@
+using System.Diagnostics;
+using System.Threading;
+using System.Windows;
+using System.Windows.Threading;
+using PaperTodo.Plugin;
+
+namespace PaperTodo;
+
+public sealed partial class AppController
+{
+    private const string PluginRuntimeCapability = "runtime";
+
+    private enum PluginRuntimeState
+    {
+        Stopped,
+        Starting,
+        Running,
+        Failed,
+        Disposing
+    }
+
+    private sealed class PluginRuntimeLifetime
+    {
+        private int _active = 1;
+
+        public bool IsActive => Volatile.Read(ref _active) != 0;
+
+        public bool TryDeactivate() =>
+            Interlocked.Exchange(ref _active, 0) != 0;
+    }
+
+    private sealed class PluginRuntimeStateVersionException(string message)
+        : Exception(message);
+
+    private sealed class PluginRuntimeSlot
+    {
+        public required string ProviderId { get; init; }
+        public PaperBodyPluginDescriptor? Descriptor { get; set; }
+        public PluginRuntimeState State { get; set; }
+        public Guid RuntimeId { get; set; }
+        public PluginRuntimeLifetime? Lifetime { get; set; }
+        public IDisposable? StartingRuntime { get; set; }
+        public PluginRuntimeLease? Lease { get; set; }
+        public bool RecoveryAttempted { get; set; }
+        public bool RestartRequested { get; set; }
+    }
+
+    private sealed class PluginRuntimeLease : IDisposable
+    {
+        private int _disposed;
+
+        public required Guid RuntimeId { get; init; }
+        public required string ProviderId { get; init; }
+        public required PluginRuntimeLifetime Lifetime { get; init; }
+        public required PaperPluginRuntimeWorkspaceApi Workspace { get; init; }
+        public required PaperPluginRuntimeSettingsApi Settings { get; init; }
+        public required PaperPluginRuntimeStateApi State { get; init; }
+        public required PaperPluginRuntimePapersApi Papers { get; init; }
+        public required PaperPluginRuntimeGlobalTopBarApi GlobalTopBar { get; init; }
+        public required PaperPluginRuntimeGlobalShortcutApi GlobalShortcuts { get; init; }
+        public IDisposable? Runtime { get; init; }
+        public IPaperBodyPlugin? NativeFactory { get; init; }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            {
+                return;
+            }
+
+            Lifetime.TryDeactivate();
+            try { Runtime?.Dispose(); } catch { }
+            try { Papers.Dispose(); } catch { }
+            try { State.Dispose(); } catch { }
+            try { Settings.Dispose(); } catch { }
+            try { GlobalShortcuts.Dispose(); } catch { }
+            try { GlobalTopBar.Dispose(); } catch { }
+            try { Workspace.Dispose(); } catch { }
+            if (NativeFactory is IDisposable disposable &&
+                !ReferenceEquals(Runtime, NativeFactory))
+            {
+                try { disposable.Dispose(); } catch { }
+            }
+        }
+    }
+
+    private readonly Dictionary<string, PluginRuntimeSlot> _pluginRuntimeSlots =
+        new(StringComparer.Ordinal);
+    private bool _pluginRuntimeReconciliationEnabled;
+    private bool _pluginRuntimeDisposing;
+
+    internal void EnablePluginRuntimeReconciliation()
+    {
+        if (_pluginRuntimeDisposing || IsExiting)
+        {
+            return;
+        }
+
+        _pluginRuntimeReconciliationEnabled = true;
+        RefreshPluginShortcuts();
+        ReconcilePluginRuntimes();
+    }
+
+    internal void ReconcilePluginRuntimes()
+    {
+        if (!_pluginRuntimeReconciliationEnabled ||
+            _pluginRuntimeDisposing ||
+            IsExiting)
+        {
+            return;
+        }
+
+        var desired = PaperBodyPlugins.Descriptors
+            .Where(descriptor => IsPluginEnabled(descriptor.Id))
+            .Where(DeclaresPluginRuntime)
+            .Where(descriptor => HasEntityPluginPaper(descriptor.Id))
+            .ToDictionary(descriptor => descriptor.Id, StringComparer.Ordinal);
+        var statusChanged = false;
+
+        foreach (var providerId in _pluginRuntimeSlots.Keys
+                     .Where(providerId => !desired.ContainsKey(providerId))
+                     .ToArray())
+        {
+            RemovePluginRuntimeSlot(providerId);
+            statusChanged = true;
+        }
+
+        foreach (var descriptor in desired.Values)
+        {
+            if (!_pluginRuntimeSlots.TryGetValue(descriptor.Id, out var slot))
+            {
+                slot = new PluginRuntimeSlot
+                {
+                    ProviderId = descriptor.Id,
+                    Descriptor = descriptor,
+                    State = PluginRuntimeState.Stopped
+                };
+                _pluginRuntimeSlots.Add(descriptor.Id, slot);
+                statusChanged = true;
+            }
+            else
+            {
+                slot.Descriptor = descriptor;
+            }
+
+            if (slot.State == PluginRuntimeState.Stopped)
+            {
+                StartPluginRuntimeSlot(slot, descriptor);
+                statusChanged = true;
+            }
+        }
+
+        foreach (var slot in _pluginRuntimeSlots.Values)
+        {
+            slot.Lease?.Papers.Reconcile();
+        }
+
+        if (statusChanged)
+        {
+            QueuePluginStatusUiRefresh();
+        }
+    }
+
+    private bool HasEntityPluginPaper(string providerId) =>
+        State.Papers.Any(paper =>
+            paper.Type == PaperTypes.Note &&
+            string.Equals(
+                paper.BodyProviderId?.Trim(),
+                providerId,
+                StringComparison.Ordinal));
+
+    private bool IsPluginRuntimeRunning(string providerId) =>
+        _pluginRuntimeSlots.TryGetValue(providerId, out var slot) &&
+        slot.State == PluginRuntimeState.Running &&
+        slot.Lease != null;
+
+    private bool HasPluginRuntimeFailure(string providerId) =>
+        _pluginRuntimeSlots.TryGetValue(providerId, out var slot) &&
+        slot.State == PluginRuntimeState.Failed;
+
+    private void StartPluginRuntimeSlot(
+        PluginRuntimeSlot slot,
+        PaperBodyPluginDescriptor descriptor)
+    {
+        if (slot.State != PluginRuntimeState.Stopped ||
+            !IsPluginRuntimeDesired(descriptor.Id))
+        {
+            return;
+        }
+
+        slot.State = PluginRuntimeState.Starting;
+        slot.Descriptor = descriptor;
+        slot.RuntimeId = Guid.NewGuid();
+        slot.RestartRequested = false;
+        var runtimeId = slot.RuntimeId;
+        var lifetime = new PluginRuntimeLifetime();
+        slot.Lifetime = lifetime;
+        _ = StartPluginRuntimeSlotAsync(
+            slot,
+            descriptor,
+            runtimeId,
+            lifetime);
+    }
+
+    private async Task StartPluginRuntimeSlotAsync(
+        PluginRuntimeSlot slot,
+        PaperBodyPluginDescriptor descriptor,
+        Guid runtimeId,
+        PluginRuntimeLifetime lifetime)
+    {
+        PluginRuntimeLease? lease = null;
+        try
+        {
+            lease = await CreatePluginRuntimeLeaseAsync(
+                slot,
+                descriptor,
+                runtimeId,
+                lifetime);
+
+            if (ReferenceEquals(slot.StartingRuntime, lease.Runtime))
+            {
+                slot.StartingRuntime = null;
+            }
+
+            if (!IsCurrentPluginRuntimeSlot(slot, runtimeId) ||
+                !IsPluginRuntimeDesired(descriptor.Id))
+            {
+                ClearPluginRuntimeLifetime(slot, lifetime);
+                lease.Dispose();
+                lease = null;
+                if (IsCurrentPluginRuntimeSlot(slot, runtimeId))
+                {
+                    slot.State = PluginRuntimeState.Stopped;
+                    ReconcilePluginRuntimes();
+                }
+                return;
+            }
+
+            if (slot.RestartRequested)
+            {
+                ClearPluginRuntimeLifetime(slot, lifetime);
+                lease.Dispose();
+                lease = null;
+                slot.RestartRequested = false;
+                HandlePluginRuntimeFailure(
+                    slot,
+                    descriptor,
+                    new InvalidOperationException(
+                        "The Web plugin runtime failed while completing startup."),
+                    "startup-ready");
+                return;
+            }
+
+            slot.Lease = lease;
+            lease = null;
+            slot.State = PluginRuntimeState.Running;
+            QueuePluginStatusUiRefresh();
+        }
+        catch (PluginRuntimeStateVersionException ex)
+        {
+            ClearPluginRuntimeLifetime(slot, lifetime);
+            lifetime.TryDeactivate();
+            lease?.Dispose();
+            if (!IsCurrentPluginRuntimeSlot(slot, runtimeId))
+            {
+                return;
+            }
+
+            HandlePluginRuntimeFailure(
+                slot,
+                descriptor,
+                ex,
+                "state-version");
+        }
+        catch (OperationCanceledException) when (!lifetime.IsActive)
+        {
+            ClearPluginRuntimeLifetime(slot, lifetime);
+            lifetime.TryDeactivate();
+            lease?.Dispose();
+            if (!IsCurrentPluginRuntimeSlot(slot, runtimeId))
+            {
+                return;
+            }
+
+            slot.RestartRequested = false;
+            slot.State = PluginRuntimeState.Stopped;
+            QueuePluginStatusUiRefresh();
+            ReconcilePluginRuntimes();
+        }
+        catch (Exception ex)
+        {
+            ClearPluginRuntimeLifetime(slot, lifetime);
+            lifetime.TryDeactivate();
+            lease?.Dispose();
+            if (!IsCurrentPluginRuntimeSlot(slot, runtimeId))
+            {
+                return;
+            }
+
+            HandlePluginRuntimeFailure(slot, descriptor, ex, "start");
+        }
+    }
+
+    private async Task<PluginRuntimeLease> CreatePluginRuntimeLeaseAsync(
+        PluginRuntimeSlot slot,
+        PaperBodyPluginDescriptor descriptor,
+        Guid runtimeId,
+        PluginRuntimeLifetime lifetime)
+    {
+        if (!IsCurrentPluginRuntimeSlot(slot, runtimeId) ||
+            !IsPluginRuntimeDesired(descriptor.Id) ||
+            !lifetime.IsActive)
+        {
+            throw new OperationCanceledException(
+                "The plugin runtime no longer has an entity-paper owner.");
+        }
+
+        var storedRuntimeState = PaperBodyPlugins.DataStore.ReadRuntimeState(descriptor.Id);
+        if (!PluginRuntimeStateVersionIsSupported(
+                storedRuntimeState.Version,
+                descriptor.StateVersion))
+        {
+            throw new PluginRuntimeStateVersionException(
+                $"Saved plugin Runtime state version {storedRuntimeState.Version} is newer than supported version {descriptor.StateVersion}.");
+        }
+
+        bool IsActive() => lifetime.IsActive;
+
+        var workspace = new PaperPluginRuntimeWorkspaceApi(
+            this,
+            descriptor.Id,
+            descriptor.Permissions,
+            IsActive);
+        var settings = new PaperPluginRuntimeSettingsApi(
+            PaperBodyPlugins.DataStore,
+            descriptor,
+            IsActive);
+        var state = new PaperPluginRuntimeStateApi(
+            PaperBodyPlugins.DataStore,
+            descriptor,
+            IsActive);
+        var papers = new PaperPluginRuntimePapersApi(
+            this,
+            descriptor.Id,
+            IsActive);
+        var globalTopBar = new PaperPluginRuntimeGlobalTopBarApi(
+            this,
+            runtimeId,
+            descriptor.Id,
+            IsActive);
+        var globalShortcuts = new PaperPluginRuntimeGlobalShortcutApi(
+            this,
+            runtimeId,
+            descriptor.Id,
+            IsActive);
+
+        IDisposable? runtime = null;
+        IPaperBodyPlugin? nativeFactory = null;
+        try
+        {
+            if (descriptor.Kind == PaperBodyPluginKind.Native)
+            {
+                var activation = PaperBodyPlugins.CreateNativePlugin(descriptor);
+                nativeFactory = activation.Plugin;
+                if (activation.Plugin is not IPaperPluginRuntimeProvider provider)
+                {
+                    throw new InvalidOperationException(
+                        $"Native plugin '{descriptor.Id}' declares runtime but does not implement IPaperPluginRuntimeProvider.");
+                }
+
+                runtime = provider.CreatePluginRuntime(new PaperPluginRuntimeContext
+                {
+                    ProviderId = descriptor.Id,
+                    ApiVersion = descriptor.ApiVersion,
+                    GrantedPermissions = descriptor.Permissions,
+                    Workspace = workspace,
+                    Settings = settings,
+                    State = state,
+                    Papers = papers,
+                    GlobalTopBar = globalTopBar,
+                    GlobalShortcuts = globalShortcuts
+                }) ?? throw new InvalidOperationException(
+                    $"Native plugin '{descriptor.Id}' returned no plugin runtime.");
+            }
+            else if (descriptor.Kind == PaperBodyPluginKind.Web)
+            {
+                var webRuntime = new WebPluginRuntime(
+                    descriptor,
+                    workspace,
+                    settings,
+                    state,
+                    papers,
+                    globalTopBar,
+                    globalShortcuts,
+                    IsActive,
+                    () => RequestPluginRuntimeRestart(runtimeId, descriptor.Id));
+                runtime = webRuntime;
+                slot.StartingRuntime = webRuntime;
+                await webRuntime.StartAsync();
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    "Built-in body providers cannot declare plugin runtime.");
+            }
+
+            if (!lifetime.IsActive)
+            {
+                throw new OperationCanceledException(
+                    "The plugin runtime lost its entity-paper owner while starting.");
+            }
+
+            return new PluginRuntimeLease
+            {
+                RuntimeId = runtimeId,
+                ProviderId = descriptor.Id,
+                Lifetime = lifetime,
+                Workspace = workspace,
+                Settings = settings,
+                State = state,
+                Papers = papers,
+                GlobalTopBar = globalTopBar,
+                GlobalShortcuts = globalShortcuts,
+                Runtime = runtime,
+                NativeFactory = nativeFactory
+            };
+        }
+        catch
+        {
+            if (ReferenceEquals(slot.StartingRuntime, runtime))
+            {
+                slot.StartingRuntime = null;
+            }
+            lifetime.TryDeactivate();
+            try { runtime?.Dispose(); } catch { }
+            try { papers.Dispose(); } catch { }
+            try { state.Dispose(); } catch { }
+            try { settings.Dispose(); } catch { }
+            try { globalShortcuts.Dispose(); } catch { }
+            try { globalTopBar.Dispose(); } catch { }
+            try { workspace.Dispose(); } catch { }
+            if (nativeFactory is IDisposable disposable &&
+                !ReferenceEquals(runtime, nativeFactory))
+            {
+                try { disposable.Dispose(); } catch { }
+            }
+            throw;
+        }
+    }
+
+    private void HandlePluginRuntimeFailure(
+        PluginRuntimeSlot slot,
+        PaperBodyPluginDescriptor descriptor,
+        Exception exception,
+        string phase,
+        bool allowRecovery = false)
+    {
+        slot.Lease = null;
+        slot.Lifetime?.TryDeactivate();
+        slot.Lifetime = null;
+        slot.RestartRequested = false;
+
+        Trace.TraceWarning(
+            "Plugin runtime failure. Provider={0}; Phase={1}; RecoveryAttempted={2}; Exception={3}",
+            descriptor.Id,
+            phase,
+            slot.RecoveryAttempted,
+            exception.GetBaseException());
+
+        if (allowRecovery &&
+            !slot.RecoveryAttempted &&
+            IsPluginRuntimeDesired(descriptor.Id))
+        {
+            // A successfully running Runtime gets one host-level rebuild opportunity per process.
+            // There is no timed backoff or recurring retry loop; another failure stops here until
+            // settings change or the application restarts.
+            slot.RecoveryAttempted = true;
+            slot.State = PluginRuntimeState.Stopped;
+            QueuePluginStatusUiRefresh();
+            ReconcilePluginRuntimes();
+            return;
+        }
+
+        slot.State = PluginRuntimeState.Failed;
+        ClearPluginRuntimePresentation(descriptor.Id);
+        QueuePluginStatusUiRefresh();
+    }
+
+    private bool IsCurrentPluginRuntimeSlot(
+        PluginRuntimeSlot slot,
+        Guid runtimeId) =>
+        !_pluginRuntimeDisposing &&
+        _pluginRuntimeReconciliationEnabled &&
+        _pluginRuntimeSlots.TryGetValue(slot.ProviderId, out var current) &&
+        ReferenceEquals(current, slot) &&
+        slot.RuntimeId == runtimeId &&
+        slot.State != PluginRuntimeState.Disposing;
+
+    private bool IsPluginRuntimeDesired(string providerId) =>
+        _pluginRuntimeReconciliationEnabled &&
+        !_pluginRuntimeDisposing &&
+        !IsExiting &&
+        IsPluginEnabled(providerId) &&
+        HasEntityPluginPaper(providerId) &&
+        PaperBodyPlugins.TryGet(providerId, out var descriptor) &&
+        DeclaresPluginRuntime(descriptor);
+
+    private void RequestPluginRuntimeRestart(Guid runtimeId, string providerId)
+    {
+        if (_pluginRuntimeDisposing || IsExiting)
+        {
+            return;
+        }
+
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        _ = dispatcher.BeginInvoke(
+            (Action)(() =>
+            {
+                if (_pluginRuntimeDisposing ||
+                    IsExiting ||
+                    !_pluginRuntimeSlots.TryGetValue(providerId, out var slot) ||
+                    slot.RuntimeId != runtimeId)
+                {
+                    return;
+                }
+
+                if (slot.State == PluginRuntimeState.Starting)
+                {
+                    slot.RestartRequested = true;
+                    return;
+                }
+
+                if (slot.State != PluginRuntimeState.Running ||
+                    slot.Lease?.RuntimeId != runtimeId ||
+                    slot.Descriptor == null)
+                {
+                    return;
+                }
+
+                var descriptor = slot.Descriptor;
+                var lease = slot.Lease;
+                slot.Lease = null;
+                slot.Lifetime?.TryDeactivate();
+                slot.Lifetime = null;
+                slot.RestartRequested = false;
+                lease.Dispose();
+                HandlePluginRuntimeFailure(
+                    slot,
+                    descriptor,
+                    new InvalidOperationException(
+                        "The Web plugin runtime requested restart after a fatal navigation or browser-process failure."),
+                    "running",
+                    allowRecovery: true);
+            }),
+            DispatcherPriority.Background);
+    }
+
+    private void NotifyPluginRuntimeSettingsChanged(string providerId, string settingsJson)
+    {
+        if (_pluginRuntimeSlots.TryGetValue(providerId, out var slot) &&
+            slot.State == PluginRuntimeState.Running &&
+            slot.Lease != null)
+        {
+            slot.Lease.Settings.PublishChanged(settingsJson);
+        }
+    }
+
+    private void RetryFailedPluginRuntimeAfterSettingsChanged(string providerId)
+    {
+        if (_pluginRuntimeDisposing ||
+            IsExiting ||
+            !_pluginRuntimeSlots.TryGetValue(providerId, out var slot) ||
+            slot.State != PluginRuntimeState.Failed)
+        {
+            return;
+        }
+
+        slot.RestartRequested = false;
+        slot.RecoveryAttempted = false;
+        slot.State = PluginRuntimeState.Stopped;
+        QueuePluginStatusUiRefresh();
+        ReconcilePluginRuntimes();
+    }
+
+    private static void ClearPluginRuntimeLifetime(
+        PluginRuntimeSlot slot,
+        PluginRuntimeLifetime lifetime)
+    {
+        if (ReferenceEquals(slot.Lifetime, lifetime))
+        {
+            slot.Lifetime = null;
+        }
+    }
+
+    private void RemovePluginRuntimeSlot(string providerId)
+    {
+        if (!_pluginRuntimeSlots.Remove(providerId, out var slot))
+        {
+            return;
+        }
+
+        // Reconcile while the Runtime lifetime is still valid so deleting the final Paper emits
+        // PaperRemoved and the plugin may persist its final provider-scoped state before teardown.
+        try { slot.Lease?.Papers.Reconcile(); } catch { }
+
+        slot.RestartRequested = false;
+        slot.State = PluginRuntimeState.Disposing;
+        slot.Lifetime?.TryDeactivate();
+        slot.Lifetime = null;
+        var startingRuntime = slot.StartingRuntime;
+        slot.StartingRuntime = null;
+        var lease = slot.Lease;
+        slot.Lease = null;
+        try { startingRuntime?.Dispose(); } catch { }
+        lease?.Dispose();
+    }
+
+    private static bool PluginRuntimeStateVersionIsSupported(
+        int storedVersion,
+        int targetVersion) =>
+        storedVersion <= targetVersion;
+
+    private static bool DeclaresPluginRuntime(PaperBodyPluginDescriptor descriptor) =>
+        descriptor.Manifest?.Capabilities?.Contains(
+            PluginRuntimeCapability,
+            StringComparer.Ordinal) == true;
+
+    private void DisposePluginRuntimes()
+    {
+        _pluginRuntimeDisposing = true;
+        _pluginRuntimeReconciliationEnabled = false;
+        foreach (var providerId in _pluginRuntimeSlots.Keys.ToArray())
+        {
+            RemovePluginRuntimeSlot(providerId);
+        }
+        _pluginRuntimeSlots.Clear();
+    }
+}

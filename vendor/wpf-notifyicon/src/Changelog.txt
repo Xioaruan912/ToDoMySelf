@@ -1,0 +1,136 @@
+hardcodet.net NotifyIcon for WPF - Changelog
+Copyright (c) 2009-2021 Philipp Sumi
+Contact and Information: http://www.hardcodet.net
+
+Unreleased (PaperTodo fork)
+*****
+
+FIX   Position mouse-invoked context menus through WPF MousePoint placement.
+FIX   Transfer foreground focus only after the real popup HWND has been created.
+
+2.0.1 (2024.10.16)
+*****
+
+FIX   Fix double execution of LeftClickCommand
+FIX   Fix context menu position acording to dpi setting
+
+2.0.0 (2024.07.10)
+*****
+
+CHG   Migratd to a new license, this project is now using the MIT License
+CHG   Remove dotnet core 3.1 and .Net 5 support.
+ADD   Added .Net 8 support.
+ADD   Add ability to place popup not only near the mouse cursor. Add also new properties PopupHorizontalOffset and PopupVerticalOffset.
+      Add ability to show and close popup from code behind.
+ADD   Implement WM_ContextMenu message to show context menu on right click.
+FIX   Improve icon selection to pick the best-fitting icon size from ICO files.
+CHG   Changed NIN_SELECT to trigger the left mouse click event.
+FIX   Don't show the context menu twice.
+FIX   Improve disposing of the NotifyIcon.
+FIX   Fix side-effect of Microsoft bringing back support for pre-Windows 11 custom tooltips.
+ADD   Add support for different types of ImageSource.
+FIX   Fix trayicon theme change detection.
+ADD   Add BalloonClosed event for custom balloon.
+FIX   Set focus to context menu to allow using esc when not focused.
+
+
+1.1.0 (2021.03.27)
+*****
+
+ADD   Added dotnet core 3.1 and .Net 5 support.
+ADD   Added strong naming for assembly.
+FIX   When change dpi, the ContextMenu's position was wrong.
+
+
+1.0.8 (2016.04.02)
+*****
+
+FIX   Delayed message sink listener causing interop issues.
+
+
+1.0.7 (2016.04.01)
+*****
+
+FIX   Potential null-reference exceptions with the control trying to fire events before it registered event listeners. Thanks Maxim Miroshnikov.
+
+
+1.0.6 (2016.03.20)
+*****
+
+FIX   GetDeviceCoordinates now uses new SystemInfo class, which resolves potential null reference issues. Thanks  Alexandr Reshetnikov.
+ADD   Added "NoLeftClickDelay" TaskbarIcon dependency property, to optionally make left clicks work without delay. Thanks John Reynolds.
+ADD   Overload to show built-in tray tooltips with big icons. Thanks amulware.
+
+
+1.0.5 (2013.11.20)
+*****
+
+FIX   Support for x64 applications targeting .NET 4 x64 or higher (big thanks to Mark Junker for submitting a patch!)
+CHG   Component does no longer throw an exception if no Explorer shell is present,
+      but waits for it to be created.
+CHG   NotifyIcon is not only removed on user-initiated disposal, but also garbage collection.
+CHG   The attached ParentTaskbarIconProperty is now derived, so data binding to the attached DP
+      becomes much simpler
+	  (e.g. <TextBlock Text="{Binding RelativeSource={RelativeSource Self}, Path=(tb:TaskbarIcon.ParentTaskbarIcon).ToolTipText}" />)
+CHG   WinAPI interop now uses Unicode in order to prevent issues with Asian languages. Thanks to JO Hyeong-Ryeol for posting an easy fix!
+FIX   Context menues receiving keyboard events, which allows for TextBoxes in context menus.
+FIX   Coordinates calculated properly on operating systems with non-standard DPIs. Thanks Rusi Filipov for bug reporting and testing.
+FIX   Data-bound ToolTipText may have caused ToolTips to remain open in case of property changes.
+
+
+----------------------------------------------------------------------------
+
+1.0.4 (2009.09.21)
+*****
+
+FIX   If a popup is opened, its window handle is now being set as the foreground.
+      This fixes an issue with certain controls being disabled on popups.
+      (thanks Andrew Smith for pointing me in the right direction!).
+FIX   Changed dispatcher access in order to work in WinForms scenarios, too.
+FIX   Corrected typo in WindowMessageSink.BalloonToolTipChanged event (thanks Mertsch).
+      Used internally (although event is public), so this shouldn't be a breaking change.
+FIX   Dispose only deregisters OnExit event listenter if there is actually an
+      application (not the case in WinForms environments).
+      
+
+----------------------------------------------------------------------------
+
+1.0.3 (2009.07.02)
+*****
+FIX   Commands did not work with RoutedCommands which require an explicit target
+      (thanks Rodolfo Grave).
+ADD   Added command target properties for both left and double click commands.
+      Allows to explicitly define another control as the target of a routed
+      command.
+
+
+----------------------------------------------------------------------------
+
+1.0.2 (2009.05.18)
+*****
+FIX   Late-bound DataContext did not coerce properly with ContextMenu, thus
+      assigning it the TaskbarIcon rather than the TaskbarIcon's DataContext.
+      Thanks Nic Pillinger for discovering the issue.
+      
+
+----------------------------------------------------------------------------
+
+1.0.1 (2009.05.15)
+*****
+CHG   DataContext is also assigned to ContextMenu (thanks Nic Pillinger),
+      and properly coerced for ToolTips and Popups. Also checks whether
+      target item has a binding on the DataContext
+      (does not just override if DataContext is null).
+CHG   Popup creation no longer calls Popup.CreateRootPopup which tries to
+      bind to dependency properties that do not exist, thus causing debug
+      warnings (thanks to Loic Berthollet).
+CHG   The LeftClickCommand now executes with a delay in order to make sure
+      it's not a double-click.
+FIX   Removed debug output in WindowMessageSink.
+
+
+----------------------------------------------------------------------------
+
+1.0.0
+*****
+ADD   Initial release.

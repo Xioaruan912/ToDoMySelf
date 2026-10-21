@@ -1,0 +1,281 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to create or update. Defaults to v<project version>."
+        required: false
+        type: string
+      prerelease:
+        description: "Mark the GitHub Release as a prerelease."
+        required: false
+        default: false
+        type: boolean
+      stable_release_confirmed:
+        description: "Required for stable releases. Confirms final hand checks are complete."
+        required: false
+        default: false
+        type: boolean
+      retarget_existing_tag:
+        description: "Allow an existing release tag to move to this commit before replacing assets."
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows executables
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: pwsh
+
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "true"
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          # wpf-notifyicon uses Nerdbank.GitVersioning, which needs history far enough
+          # to calculate version height. A depth-1 parent checkout also shallow-clones
+          # submodules and makes release publishing fail with a missing commit object.
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build native LMDB library
+        run: .\native\lmdb\build.ps1 -Configuration Release -ForceRebuild
+
+      - name: Read project metadata
+        id: meta
+        run: |
+          $project = [xml](Get-Content -LiteralPath .\PaPerMySelf.csproj -Raw)
+          # Multiple PropertyGroups exist; .PropertyGroup.Version is an array that stringifies
+          # with a trailing space (e.g. "3.0 "). Read the single Version element instead.
+          $versionNodes = $project.SelectNodes('/Project/PropertyGroup/Version')
+          if ($versionNodes.Count -ne 1) {
+            throw "PaPerMySelf.csproj must define exactly one <Version> element (found $($versionNodes.Count))."
+          }
+          $version = ([string]$versionNodes[0].InnerText).Trim()
+          if ([string]::IsNullOrWhiteSpace($version) -or $version -match '\s') {
+            throw "PaPerMySelf.csproj <Version> is missing or contains whitespace: '$version'."
+          }
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "self_contained_exe=PaPerMySelf-v$version-win-x64-self-contained.exe" >> $env:GITHUB_OUTPUT
+          "framework_dependent_exe=PaPerMySelf-v$version-win-x64-no-runtime.exe" >> $env:GITHUB_OUTPUT
+
+      - name: Restore
+        run: dotnet restore .\PaPerMySelf.csproj
+
+      - name: Publish release executables
+        env:
+          SELF_CONTAINED_EXE: ${{ steps.meta.outputs.self_contained_exe }}
+          FRAMEWORK_DEPENDENT_EXE: ${{ steps.meta.outputs.framework_dependent_exe }}
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE "release"
+          $selfContainedOut = Join-Path $env:RUNNER_TEMP "publish-self-contained"
+          $frameworkDependentOut = Join-Path $env:RUNNER_TEMP "publish-no-runtime"
+
+          Remove-Item -LiteralPath $releaseDir, $selfContainedOut, $frameworkDependentOut -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $releaseDir, $selfContainedOut, $frameworkDependentOut | Out-Null
+
+          dotnet publish .\PaPerMySelf.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -o $selfContainedOut `
+            /p:PublishSingleFile=true `
+            /p:PublishReadyToRun=false `
+            /p:IncludeNativeLibrariesForSelfExtract=true `
+            /p:EnableCompressionInSingleFile=true `
+            /p:PublishTrimmed=false `
+            /p:EmbedAllSources=false `
+            /p:EmbedUntrackedSources=false `
+            /p:DebugType=none `
+            /p:DebugSymbols=false
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          Copy-Item -LiteralPath (Join-Path $selfContainedOut "PaPerMySelf.exe") -Destination (Join-Path $releaseDir $env:SELF_CONTAINED_EXE)
+
+          dotnet publish .\PaPerMySelf.csproj `
+            -c Release `
+            -r win-x64 `
+            --self-contained false `
+            -o $frameworkDependentOut `
+            /p:PublishSingleFile=true `
+            /p:PublishReadyToRun=false `
+            /p:IncludeNativeLibrariesForSelfExtract=true `
+            /p:EnableCompressionInSingleFile=false `
+            /p:PublishTrimmed=false `
+            /p:EmbedAllSources=false `
+            /p:EmbedUntrackedSources=false `
+            /p:DebugType=none `
+            /p:DebugSymbols=false
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          Copy-Item -LiteralPath (Join-Path $frameworkDependentOut "PaPerMySelf.exe") -Destination (Join-Path $releaseDir $env:FRAMEWORK_DEPENDENT_EXE)
+
+      - name: Upload executable package
+        uses: actions/upload-artifact@v7
+        with:
+          name: PaPerMySelf-v${{ steps.meta.outputs.version }}-win-x64
+          if-no-files-found: error
+          path: |
+            release/${{ steps.meta.outputs.self_contained_exe }}
+            release/${{ steps.meta.outputs.framework_dependent_exe }}
+
+      - name: Resolve release tag
+        id: release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        run: |
+          if ("${{ github.event_name }}" -eq "push") {
+            $tag = "${{ github.ref_name }}"
+          } else {
+            $tag = "${{ inputs.release_tag }}"
+            if ([string]::IsNullOrWhiteSpace($tag)) {
+              $tag = "v${{ steps.meta.outputs.version }}"
+            }
+          }
+
+          if (-not $tag.StartsWith("v")) {
+            throw "Release tag must start with 'v'. Got '$tag'."
+          }
+
+          $isStable = $tag -notmatch '(?i)(alpha|beta|preview|rc)'
+          $expectedTag = "v${{ steps.meta.outputs.version }}"
+          if ($isStable -and $tag -ne $expectedTag) {
+            throw "Stable release tag '$tag' does not match the checked-out project version. Expected '$expectedTag'."
+          }
+
+          $stableConfirmed = "${{ inputs.stable_release_confirmed }}" -eq "true"
+          if ($isStable -and "${{ github.event_name }}" -ne "workflow_dispatch") {
+            throw "Stable releases must be published from workflow_dispatch after final hand checks. Prerelease tags may still publish from tag pushes."
+          }
+          if ($isStable -and -not $stableConfirmed) {
+            throw "Stable release '$tag' requires stable_release_confirmed=true."
+          }
+
+          $retargetRequested = "${{ inputs.retarget_existing_tag }}" -eq "true"
+          if ($retargetRequested -and "${{ github.event_name }}" -ne "workflow_dispatch") {
+            throw "retarget_existing_tag can only be used with workflow_dispatch."
+          }
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Python for release notes
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.x"
+
+      - name: Write release notes
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          SELF_CONTAINED_EXE: ${{ steps.meta.outputs.self_contained_exe }}
+          FRAMEWORK_DEPENDENT_EXE: ${{ steps.meta.outputs.framework_dependent_exe }}
+        run: |
+          python .github/scripts/release_notes.py `
+            --tag $env:RELEASE_TAG `
+            --repository $env:GITHUB_REPOSITORY `
+            --assets $env:SELF_CONTAINED_EXE $env:FRAMEWORK_DEPENDENT_EXE `
+            --output release/RELEASE_NOTES.md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $releaseDir = Join-Path $env:GITHUB_WORKSPACE "release"
+          $tag = "${{ steps.release.outputs.tag }}"
+          $retargetRequested = "${{ inputs.retarget_existing_tag }}" -eq "true"
+
+          # Existing release tags are immutable by default. Repointing one requires an explicit
+          # workflow_dispatch opt-in so an accidental rebuild cannot silently rewrite a release.
+          git fetch --force --tags origin
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git show-ref --verify --quiet "refs/tags/$tag"
+          if ($LASTEXITCODE -eq 0) {
+            $tagCommit = (git rev-list -n 1 $tag).Trim()
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($tagCommit)) {
+              throw "Could not resolve existing release tag $tag."
+            }
+            if ($tagCommit -ne $env:GITHUB_SHA) {
+              if (-not $retargetRequested) {
+                throw "Release tag $tag already points to $tagCommit, not $env:GITHUB_SHA. Re-run manually with retarget_existing_tag=true only if replacing that published version is intentional."
+              }
+
+              Write-Host "Retargeting existing release tag $tag from $tagCommit to $env:GITHUB_SHA"
+              git tag -f $tag $env:GITHUB_SHA
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              git push origin "refs/tags/$tag" --force
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          }
+
+          $selfContained = "${{ steps.meta.outputs.self_contained_exe }}"
+          $frameworkDependent = "${{ steps.meta.outputs.framework_dependent_exe }}"
+          $assets = @(
+            (Join-Path $releaseDir $selfContained),
+            (Join-Path $releaseDir $frameworkDependent)
+          )
+          $notes = Join-Path $releaseDir "RELEASE_NOTES.md"
+          $isPrerelease = ("${{ inputs.prerelease }}" -eq "true") -or ($tag -match '(?i)(alpha|beta|preview|rc)')
+          $expectedAssetNames = @(
+            $selfContained,
+            $frameworkDependent
+          )
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            $existingAssetNames = @(gh release view $tag --json assets --jq '.assets[].name')
+            foreach ($assetName in $existingAssetNames) {
+              if ($expectedAssetNames -notcontains $assetName) {
+                gh release delete-asset $tag $assetName --yes
+              }
+            }
+            gh release upload $tag @assets --clobber
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            gh release edit $tag --target $env:GITHUB_SHA --title "PaPerMySelf $tag" --notes-file $notes
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ($isPrerelease) {
+              gh release edit $tag --prerelease
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            }
+          } else {
+            $createArgs = @(
+              "release", "create", $tag
+            ) + $assets + @(
+              "--target", $env:GITHUB_SHA,
+              "--title", "PaPerMySelf $tag",
+              "--notes-file", $notes
+            )
+
+            if ($isPrerelease) {
+              $createArgs += "--prerelease"
+            }
+
+            gh @createArgs
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }

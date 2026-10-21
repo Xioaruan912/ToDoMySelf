@@ -1,0 +1,85 @@
+name: Plugin samples
+
+on:
+  pull_request:
+    paths:
+      - "PaperTodo.Plugin.Abstractions/**"
+      - "plugin-samples/**"
+      - "plugins/**"
+      - "tools/testing/**"
+      - "tests/plugin-samples/**"
+      - "tests/PaperTodo.ProtocolPolicyChecks/**"
+      - "tests/PaperTodo.PluginApiChecks/**"
+      - "tests/PaperTodo.CodexCliBridgeChecks/**"
+      - "tests/PaperTodo.SettingsApiChecks/**"
+      - "PaPerMySelf.csproj"
+      - "src/AppController.Plugin*.cs"
+      - "src/AppController.Shortcuts.cs"
+      - "src/GlobalHotkeys.cs"
+      - "src/PaperPluginRuntime*.cs"
+      - "src/PaperBodyPlugin*.cs"
+      - "src/PaperSettingsService.cs"
+      - "src/AppController.Settings*.cs"
+      - "src/AppController.cs"
+      - "src/Models.cs"
+      - "src/Mcp*.cs"
+      - "src/PaperWindow.Plugin*.cs"
+      - "src/Plugin*.cs"
+      - "src/WebPaperBodySession*.cs"
+      - "src/WebPlugin*.cs"
+      - ".github/workflows/plugin-samples.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "PaperTodo.Plugin.Abstractions/**"
+      - "plugin-samples/**"
+      - "plugins/**"
+      - "tools/testing/**"
+      - "tests/plugin-samples/**"
+      - "tests/PaperTodo.ProtocolPolicyChecks/**"
+      - "tests/PaperTodo.PluginApiChecks/**"
+      - "tests/PaperTodo.CodexCliBridgeChecks/**"
+      - "tests/PaperTodo.SettingsApiChecks/**"
+      - "PaPerMySelf.csproj"
+      - "src/AppController.Plugin*.cs"
+      - "src/AppController.Shortcuts.cs"
+      - "src/GlobalHotkeys.cs"
+      - "src/PaperPluginRuntime*.cs"
+      - "src/PaperBodyPlugin*.cs"
+      - "src/PaperSettingsService.cs"
+      - "src/AppController.Settings*.cs"
+      - "src/AppController.cs"
+      - "src/Models.cs"
+      - "src/Mcp*.cs"
+      - "src/PaperWindow.Plugin*.cs"
+      - "src/Plugin*.cs"
+      - "src/WebPaperBodySession*.cs"
+      - "src/WebPlugin*.cs"
+      - ".github/workflows/plugin-samples.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  validate-plugin-samples:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build PaperTodo plugin host
+        shell: pwsh
+        run: dotnet build .\PaPerMySelf.csproj -c Release
+
+      - name: Plugin behavior and sample checks
+        shell: pwsh
+        run: ./tools/testing/Run-Checks.ps1 -Group plugins

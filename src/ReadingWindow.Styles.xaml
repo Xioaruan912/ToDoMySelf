@@ -1,0 +1,17 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <Style TargetType="PasswordBox">
+    <Setter Property="Height" Value="28"/><Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="8,4"/>
+    <Setter Property="VerticalContentAlignment" Value="Center"/>
+    <Setter Property="Background" Value="{DynamicResource ReadingField}"/><Setter Property="Foreground" Value="{DynamicResource ReadingInk}"/>
+    <Setter Property="CaretBrush" Value="{DynamicResource ReadingInk}"/>
+    <Setter Property="BorderBrush" Value="{DynamicResource ReadingLine}"/>
+    <Setter Property="Template"><Setter.Value>
+      <ControlTemplate TargetType="PasswordBox">
+        <Border x:Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1" CornerRadius="5"><ScrollViewer x:Name="PART_ContentHost"/></Border>
+        <ControlTemplate.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Frame" Property="BorderBrush" Value="{DynamicResource ReadingGreen}"/></Trigger></ControlTemplate.Triggers>
+      </ControlTemplate>
+    </Setter.Value></Setter>
+  </Style>
+  <Style TargetType="DatePicker"><Setter Property="Height" Value="28"/><Setter Property="MinHeight" Value="28"/><Setter Property="Background" Value="{DynamicResource ReadingField}"/><Setter Property="Foreground" Value="{DynamicResource ReadingInk}"/><Setter Property="BorderBrush" Value="{DynamicResource ReadingLine}"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+  <Style TargetType="DatePickerTextBox"><Setter Property="Background" Value="{DynamicResource ReadingField}"/><Setter Property="Foreground" Value="{DynamicResource ReadingInk}"/><Setter Property="VerticalContentAlignment" Value="Center"/></Style>
+</ResourceDictionary>

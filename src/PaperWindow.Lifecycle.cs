@@ -1,0 +1,411 @@
+using System.Windows;
+using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Threading;
+
+namespace PaperTodo;
+
+public sealed partial class PaperWindow
+{
+    private enum PaperWindowLifecycleState
+    {
+        Alive,
+        Closing,
+        Closed
+    }
+
+    private enum PaperPresentationState
+    {
+        Expanded,
+        Collapsing,
+        Collapsed,
+        Expanding,
+        Closing,
+        Closed
+    }
+
+    private enum InteractionAbortReason
+    {
+        Deactivated,
+        Hiding,
+        FormChanging,
+        Closing
+    }
+
+    private sealed class TitleBarDragSession
+    {
+        public TitleBarDragSession(
+            FrameworkElement source,
+            Point startPosition,
+            DeviceScreenPoint startScreenPosition,
+            ExperimentalTetherDragAnchor? tetherAnchor)
+        {
+            Source = source;
+            StartPosition = startPosition;
+            StartScreenPosition = startScreenPosition;
+            TetherAnchor = tetherAnchor;
+        }
+
+        public FrameworkElement Source { get; }
+        public Point StartPosition { get; }
+        public DeviceScreenPoint StartScreenPosition { get; }
+        public ExperimentalTetherDragAnchor? TetherAnchor { get; }
+        public bool TetherMoved { get; set; }
+    }
+
+    private PaperWindowLifecycleState _windowLifecycle = PaperWindowLifecycleState.Alive;
+    private bool _isClosingForReal;
+    private PaperPresentationState _presentationState;
+    private TitleBarDragSession? _titleBarDragSession;
+    private int _titleEditIntentGeneration;
+
+    public bool IsClosed => _windowLifecycle == PaperWindowLifecycleState.Closed;
+    private bool IsPaperFormTransitioning => _presentationState is
+        PaperPresentationState.Collapsing or
+        PaperPresentationState.Expanding;
+
+    private void InitializePaperPresentationState()
+    {
+        _presentationState = _paper.IsCollapsed
+            ? PaperPresentationState.Collapsed
+            : PaperPresentationState.Expanded;
+    }
+
+    private void BeginPaperFormTransition(bool collapsed, bool animate)
+    {
+        if (_paperChrome is SkinBorder surface) surface.SetFormTransition(true);
+        if (animate) _nativeMica?.PrepareFormTransition();
+        else _nativeMica?.CancelFormTransitionPreparation();
+        _presentationState = collapsed
+            ? PaperPresentationState.Collapsing
+            : PaperPresentationState.Expanding;
+        // IsCapsule changes to the target form before its size animation starts. Keep the
+        // current scene, but never acquire a new desktop snapshot for an intermediate frame.
+        if (_paperChrome is SkinBorder skin) skin.SetSampledBackgroundCaptureSuspended(true);
+        // Native refresh belongs after target/frame preparation in SetCollapsedStateCore.
+    }
+
+    private void CompletePaperFormTransition(bool collapsed)
+    {
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive)
+        {
+            return;
+        }
+
+        _nativeMica?.CancelFormTransitionPreparation();
+        if (_paperChrome is SkinBorder surface) surface.SetFormTransition(false);
+        _presentationState = collapsed
+            ? PaperPresentationState.Collapsed
+            : PaperPresentationState.Expanded;
+
+        // ResetTransitionVisuals may have chosen a temporary shadow while the
+        // state still said "transitioning". Re-select the actual endpoint here.
+        ApplyPaperChromePresentation();
+
+        if (_paperChrome is SkinBorder skin)
+        {
+            var generation = _collapseTransitionGeneration;
+            // Render/layout and already queued native geometry notifications must settle
+            // before the one endpoint capture. A reversed/closed transition cannot resume it.
+            Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+            {
+                if (_windowLifecycle == PaperWindowLifecycleState.Alive &&
+                    generation == _collapseTransitionGeneration && !IsPaperFormTransitioning)
+                {
+                    skin.SetSampledBackgroundCaptureSuspended(false);
+                }
+            }));
+        }
+
+        // Collapse: release images only after the form transition finishes so the fading shell
+        // still shows bitmaps. Expand restores rendering earlier (when the shell becomes visible).
+        if (collapsed && _paper.Type == PaperTypes.Note)
+        {
+            ReleaseHiddenNoteImages();
+        }
+    }
+
+    private void CancelPendingTitleEditIntent()
+    {
+        _titleEditIntentGeneration++;
+    }
+
+    internal void CommitPendingEditsForSave()
+    {
+        CancelPendingTitleEditIntent();
+        if (_isEditingTitle)
+        {
+            EndTitleEdit(commit: true);
+        }
+
+        CommitPendingNoteContent();
+    }
+
+    internal void CommitPendingNoteContentForSave()
+        => CommitPendingNoteContent();
+
+    // Core persistence and external command preparation only need PaperTodo-owned Markdown
+    // editor text. Third-party body Commit() is a best-effort lifecycle callback, not a host save hook.
+    internal void CommitPendingMarkdownContentForSave() =>
+        _markdownBodySession?.Commit();
+
+    internal bool HasPendingMarkdownContentForSave =>
+        _markdownBodySession?.ContentDirty == true;
+
+    internal string CurrentMarkdownContentForExternalRead() =>
+        _markdownBodySession?.NoteBox?.PersistentText ?? _paper.Content ?? "";
+
+    private void CommitPendingNoteContent()
+    {
+        if (_paper.Type == PaperTypes.Note)
+        {
+            CommitCurrentPaperBody();
+        }
+    }
+
+    internal void PrepareForHide()
+    {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
+        CommitPendingEditsForSave();
+        CancelExperimentalTetherPresentation(showMain: false);
+        DetachExperimentalWindowAttachment(savePosition: false);
+        SettlePaperFormPresentation();
+        AbortAllInteractions(InteractionAbortReason.Hiding);
+    }
+
+    internal void PrepareForShow()
+        => SyncNoteImagePresentationState();
+
+    internal void ReleaseHiddenNoteImages()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        if (_paperBodyHost.HasCurrent)
+        {
+            NotifyCurrentPaperBodyVisibility(false);
+            return;
+        }
+
+        _noteBox?.SetImageRenderingSuspended(true);
+        _controller.ImageStore.ReleaseNoteBitmapCache(_paper.Id);
+    }
+
+    /// <summary>
+    /// Align image render/cache with whether the note body is actually on screen.
+    /// Uses paper visibility (not window.IsVisible) so ShowPaper can run before Show().
+    /// </summary>
+    internal void SyncNoteImagePresentationState()
+    {
+        if (_paper.Type != PaperTypes.Note)
+        {
+            return;
+        }
+
+        var visible =
+            _paper.IsVisible &&
+            !_paper.IsCollapsed &&
+            WindowState != WindowState.Minimized;
+        if (_paperBodyHost.HasCurrent)
+        {
+            NotifyCurrentPaperBodyVisibility(visible);
+            return;
+        }
+
+        _noteBox?.SetImageRenderingSuspended(!visible);
+        if (!visible)
+        {
+            _controller.ImageStore.ReleaseNoteBitmapCache(_paper.Id);
+        }
+    }
+
+    internal void PrepareForCapsulePresentationModeChange()
+    {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
+        CommitPendingEditsForSave();
+        SettlePaperFormPresentation();
+        AbortAllInteractions(InteractionAbortReason.FormChanging);
+        DetachExperimentalWindowAttachment(savePosition: true);
+        if (!_paper.IsVisible)
+        {
+            CancelPendingVisibilityTransitions();
+            HideWithoutGeometrySave();
+        }
+    }
+
+    internal void SettleAnimationsForDisabledSetting()
+    {
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
+        CancelPendingVisibilityTransitions();
+        SettlePaperFormPresentation();
+        RefreshExperimentalOpacity(animate: false);
+        if (!_paper.IsVisible)
+        {
+            HideWithoutGeometrySave();
+            return;
+        }
+
+        if (_paper.IsCollapsed &&
+            _controller.State.UseCapsuleMode &&
+            _controller.State.UseDeepCapsuleMode &&
+            HasDeepCapsuleSlotPlacement)
+        {
+            HideMainWindowForDeepCapsuleRest();
+        }
+    }
+
+    private void PrepareForFormTransition()
+    {
+        CommitPendingEditsForSave();
+        AbortAllInteractions(InteractionAbortReason.FormChanging);
+    }
+
+    private void BeginPaperWindowClose()
+    {
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive)
+        {
+            return;
+        }
+
+        // The compositor proxy can only hand off while this window still accepts endpoint frames.
+        // Reveal the small real host before changing the lifecycle state to Closing.
+        _controller.CompleteEdgeCapsuleQueueCompositionProxyFor(this);
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive) return;
+        // Controller exit already committed all editors and saved the final snapshot. Ordinary
+        // close/hide still commits here; shutdown must not commit them for a second time.
+        if (_controller.IsRunning) CommitPendingEditsForSave();
+        if (_windowLifecycle != PaperWindowLifecycleState.Alive) return;
+        _nativeMica?.CancelFormTransitionPreparation();
+        if (_paperChrome is SkinBorder surface) surface.SetFormTransition(false);
+        _windowLifecycle = PaperWindowLifecycleState.Closing;
+        _presentationState = PaperPresentationState.Closing;
+        if (_paperChrome is SkinBorder skin) skin.SetSampledBackgroundCaptureSuspended(true);
+        _collapseTransitionGeneration++;
+        CancelPaperFormAnimationClocks();
+        AbortAllInteractions(InteractionAbortReason.Closing);
+
+        HandoffForegroundBeforeSurfaceRemoval();
+    }
+
+    private void HandoffForegroundBeforeSurfaceRemoval()
+    {
+        // Native hide/close can activate a same-thread paper behind an external window, even
+        // without a hidden owner. Choose from the live stack immediately before removal, not
+        // at the start of a fade or in a delayed focus-repair callback. The native helper checks
+        // actual foreground again, so background removal and a newer user activation are no-ops.
+        if (_controller.IsRunning)
+        {
+            WindowNative.TryHandoffForegroundBeforeClose(
+                new WindowInteropHelper(this).Handle,
+                static handle => HwndSource.FromHwnd(handle)?.RootVisual is not PaperWindow paper ||
+                    (paper._windowLifecycle == PaperWindowLifecycleState.Alive &&
+                     paper._paper.IsVisible && !paper.IsExperimentalPassive));
+        }
+        // In particular, HideAll marks every paper invisible before withdrawing their HWNDs:
+        // none of those still-visible, soon-to-hide papers may become the handoff target.
+    }
+
+    private void CompletePaperWindowClose()
+    {
+        CancelExperimentalTetherPresentation(showMain: false);
+        DetachExperimentalWindowAttachment(savePosition: false);
+        WindowNative.ReleaseWindowSwitcherOwner(ref _windowSwitcherHiddenOwner);
+        _windowSwitcherHiddenOwnerApplied = false;
+        ReleaseHiddenNoteImages();
+        DisposeCurrentPaperBody();
+        _windowLifecycle = PaperWindowLifecycleState.Closed;
+        _presentationState = PaperPresentationState.Closed;
+        CancelPendingTitleEditIntent();
+    }
+
+    private void AbortAllInteractions(InteractionAbortReason reason)
+    {
+        CancelPendingTitleEditIntent();
+        CancelCurrentPaperBodyInteractions();
+        EndTitleBarDragGesture();
+        CancelCapsulePointerInteraction();
+        EndExperimentalCapsuleMagnetDragPreview();
+
+        CancelTodoSweepSelection(
+            clearSelection: reason != InteractionAbortReason.Deactivated);
+
+        if (_todoDrag != null)
+        {
+            EndTodoMouseDrag(commit: false);
+        }
+
+        EndTopBarDragGesture(commit: false);
+
+        CancelDeepCapsuleReorderDrag();
+        _suppressTodoBackspaceUntilKeyUp = false;
+        Mouse.OverrideCursor = null;
+
+        if (reason == InteractionAbortReason.Deactivated)
+        {
+            return;
+        }
+
+        CloseDeepCapsuleSlotContextMenu();
+    }
+
+    private void CancelPaperFormAnimationClocks()
+    {
+        BeginAnimation(TransitionProgressProperty, null);
+        _shell?.BeginAnimation(UIElement.OpacityProperty, null);
+        _capsuleShell?.BeginAnimation(UIElement.OpacityProperty, null);
+    }
+
+    private void SettlePaperFormPresentation()
+    {
+        if (!IsPaperFormTransitioning)
+        {
+            return;
+        }
+
+        _collapseTransitionGeneration++;
+        CancelPaperFormAnimationClocks();
+        ResetTransitionVisuals();
+        _shell.Width = double.NaN;
+        _shell.Height = double.NaN;
+
+        MoveWindowWithoutGeometrySave(() =>
+        {
+            if (_paper.IsCollapsed)
+            {
+                _shell.Visibility = Visibility.Collapsed;
+                _shell.Opacity = 0;
+                _capsuleShell.Visibility = Visibility.Visible;
+                _capsuleShell.Opacity = 1;
+                MinWidth = CapsuleWindowWidth();
+                MinHeight = PaperLayoutDefaults.CapsuleHeight;
+                ResizeMode = ResizeMode.NoResize;
+                Width = CapsuleWindowWidth();
+                Height = PaperLayoutDefaults.CapsuleHeight;
+                return;
+            }
+
+            _shell.Visibility = Visibility.Visible;
+            _shell.Opacity = 1;
+            _capsuleShell.Visibility = Visibility.Collapsed;
+            _capsuleShell.Opacity = 0;
+            MinWidth = PaperLayoutDefaults.MinWidth;
+            MinHeight = PaperLayoutDefaults.MinHeight;
+            ResizeMode = ResizeMode.CanResizeWithGrip;
+            if (_controller.UsesNativeMicaWindows)
+            {
+                Width = Math.Max(_targetTransitionWidth, PaperLayoutDefaults.MinWidth);
+                Height = Math.Max(_targetTransitionHeight, PaperLayoutDefaults.MinHeight);
+            }
+            else if (Width <= DesiredCapsuleWindowWidth + 8 ||
+                Height <= PaperLayoutDefaults.CapsuleHeight + 8)
+            {
+                Width = Math.Max(_paper.Width, PaperLayoutDefaults.MinWidth);
+                Height = Math.Max(_paper.Height, PaperLayoutDefaults.MinHeight);
+            }
+        });
+        CompletePaperFormTransition(_paper.IsCollapsed);
+        UpdateTaskbarVisibility();
+    }
+}

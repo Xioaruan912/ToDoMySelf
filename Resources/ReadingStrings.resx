@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+<resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+<resheader name="version"><value>2.0</value></resheader>
+  <data name="Forgot" xml:space="preserve"><value>忘了</value></data>
+  <data name="Fuzzy" xml:space="preserve"><value>模糊</value></data>
+  <data name="Remembered" xml:space="preserve"><value>记住了</value></data>
+  <data name="ManageReading" xml:space="preserve"><value>阅读条目</value></data>
+  <data name="ReadingDetails" xml:space="preserve"><value>进度与复习</value></data>
+  <data name="ReadingProgress" xml:space="preserve"><value>阅读进度（章节／页码）</value></data>
+  <data name="LinkedNote" xml:space="preserve"><value>关联笔记</value></data>
+  <data name="NoLinkedNote" xml:space="preserve"><value>不关联笔记</value></data>
+  <data name="MissingLinkedNote" xml:space="preserve"><value>关联笔记不在本机</value></data>
+  <data name="OpenLinkedNote" xml:space="preserve"><value>打开笔记</value></data>
+  <data name="PauseReview" xml:space="preserve"><value>暂停复习提醒</value></data>
+  <data name="SnoozeTomorrow" xml:space="preserve"><value>明天复习</value></data>
+  <data name="SnoozeThree" xml:space="preserve"><value>推迟 3 天</value></data>
+  <data name="SnoozeSeven" xml:space="preserve"><value>推迟 7 天</value></data>
+  <data name="ResumeReview" xml:space="preserve"><value>恢复复习</value></data>
+  <data name="ReviewPaused" xml:space="preserve"><value>复习已暂停</value></data>
+  <data name="ReviewDeferred" xml:space="preserve"><value>复习已推迟至 {0}</value></data>
+  <data name="NextStep" xml:space="preserve"><value>安排下一步</value></data>
+  <data name="NextStepTitle" xml:space="preserve"><value>下一步阅读名称</value></data>
+  <data name="NextStepAdded" xml:space="preserve"><value>已加入 {0} 的阅读计划</value></data>
+  <data name="ReadingSaved" xml:space="preserve"><value>阅读信息已保存</value></data>
+  <data name="ReadingConflict" xml:space="preserve"><value>此条目在别处已更新，输入已保留。再次保存将覆盖名称、进度与笔记关联。</value></data>
+  <data name="FeedbackHint" xml:space="preserve"><value>忘了：明天重试；模糊：缩短下次间隔；记住了：按原间隔继续。</value></data>
+  <data name="Back" xml:space="preserve"><value>返回</value></data>
+  <data name="OptionalUrl" xml:space="preserve"><value>链接（选填）</value></data>
+  <data name="OverdueReading" xml:space="preserve"><value>此前阅读</value></data>
+  <data name="EntryRemoved" xml:space="preserve"><value>此阅读已被删除。草稿已保留，可取消编辑后重新添加。</value></data>
+  <data name="Dashboard" xml:space="preserve"><value>阅读足迹</value></data>
+  <data name="ReadingSettings" xml:space="preserve"><value>阅读与同步</value></data>
+  <data name="History" xml:space="preserve"><value>日期回顾</value></data>
+  <data name="ReviewSettings" xml:space="preserve"><value>间隔复习</value></data>
+  <data name="ReviewScheduleHint" xml:space="preserve"><value>默认在阅读后第 1、3、7、14、30 天复习。逾期后从实际复习日顺延；可调整间隔。</value></data>
+  <data name="ReviewIntervals" xml:space="preserve"><value>复习间隔（天）</value></data>
+  <data name="InvalidReviewIntervals" xml:space="preserve"><value>请输入递增的正整数天数，用逗号分隔；最多 12 项，每项不超过 3650 天。</value></data>
+  <data name="ReviewHistory" xml:space="preserve"><value>复习记录</value></data>
+  <data name="EmptyReviews" xml:space="preserve"><value>这一天没有复习记录。</value></data>
+  <data name="DueReviews" xml:space="preserve"><value>待复习 · {0}</value></data>
+  <data name="ReviewDone" xml:space="preserve"><value>已复习</value></data>
+  <data name="ReviewDueDate" xml:space="preserve"><value>阅读于 {0} · 应复习于 {1}</value></data>
+  <data name="TodayReading" xml:space="preserve"><value>今日阅读</value></data>
+  <data name="AddReading" xml:space="preserve"><value>添加阅读</value></data>
+  <data name="PaperName" xml:space="preserve"><value>论文名称</value></data>
+  <data name="ArticleNameOrUrl" xml:space="preserve"><value>文章名称或网址</value></data>
+  <data name="TemplateHintShort" xml:space="preserve"><value>模板修改仅影响之后的日期。</value></data>
+  <data name="PasswordHintShort" xml:space="preserve"><value>留空保留已保存的密码。</value></data>
+  <data name="CredentialHint" xml:space="preserve"><value>密码由 Windows 当前用户加密保存。</value></data>
+  <data name="ReadingPaperLimit" xml:space="preserve"><value>纸片数量已达上限。可从托盘打开完整阅读记录。</value></data>
+  <data name="Less" xml:space="preserve"><value>少</value></data>
+  <data name="More" xml:space="preserve"><value>多</value></data>
+  <data name="PreviousDay" xml:space="preserve"><value>前一天</value></data>
+  <data name="NextDay" xml:space="preserve"><value>后一天</value></data>
+  <data name="SelectDate" xml:space="preserve"><value>选择日期</value></data>
+  <data name="Kind" xml:space="preserve"><value>阅读类型</value></data>
+  <data name="AddPlaceholder" xml:space="preserve"><value>添加阅读计划…</value></data>
+  <data name="TemplateName" xml:space="preserve"><value>模板名称</value></data>
+  <data name="DayProgress" xml:space="preserve"><value>{0} / {1} 已完成</value></data>
+  <data name="DailyPlan" xml:space="preserve"><value>每日计划</value></data>
+  <data name="TodayProgress" xml:space="preserve"><value>今日已完成 {0}</value></data>
+  <data name="OpenReadingJournal" xml:space="preserve"><value>阅读足迹</value></data>
+  <data name="ReadingSyncLockUnsupported" xml:space="preserve"><value>此服务未提供独占 WebDAV 锁，已停止同步以避免多设备覆盖。</value></data>
+  <data name="TemplateRemoved" xml:space="preserve"><value>此模板已被其他设备删除。未保存的文字已保留，可复制后另建模板。</value></data>
+  <data name="TemplateConflict" xml:space="preserve"><value>此模板已被其他设备修改。输入已保留；确认覆盖时请再次点击保存。</value></data>
+  <data name="Title" xml:space="preserve"><value>每日阅读</value></data>
+  <data name="Subtitle" xml:space="preserve"><value>把阅读，留在每一天。</value></data>
+  <data name="Journal" xml:space="preserve"><value>阅读记录</value></data>
+  <data name="Settings" xml:space="preserve"><value>计划与同步</value></data>
+  <data name="WeekSummary" xml:space="preserve"><value>本周 · 论文 {0} · 文章 {1} · 活跃 {2} 天</value></data>
+  <data name="HeatTitle" xml:space="preserve"><value>阅读足迹 · 最近 20 周</value></data>
+  <data name="HeatHint" xml:space="preserve"><value>浅 → 深：0、1、2、3、4+ 项完成。点击格子回顾当天。</value></data>
+  <data name="DayCount" xml:space="preserve"><value>{0} · 完成 {1} 项</value></data>
+  <data name="Today" xml:space="preserve"><value>今天</value></data>
+  <data name="TodayPlan" xml:space="preserve"><value>今日计划</value></data>
+  <data name="Paper" xml:space="preserve"><value>论文</value></data>
+  <data name="Article" xml:space="preserve"><value>文章</value></data>
+  <data name="TaskTitle" xml:space="preserve"><value>阅读标题</value></data>
+  <data name="LinkHint" xml:space="preserve"><value>链接（可选，http/https）</value></data>
+  <data name="Add" xml:space="preserve"><value>添加</value></data>
+  <data name="Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="Save" xml:space="preserve"><value>保存</value></data>
+  <data name="Delete" xml:space="preserve"><value>删除</value></data>
+  <data name="Edit" xml:space="preserve"><value>编辑</value></data>
+  <data name="Open" xml:space="preserve"><value>打开</value></data>
+  <data name="Complete" xml:space="preserve"><value>完成</value></data>
+  <data name="CompletedOnDate" xml:space="preserve"><value>这一天完成了</value></data>
+  <data name="EmptyDay" xml:space="preserve"><value>这一天没有计划。可以在下方添加。</value></data>
+  <data name="EmptyCompleted" xml:space="preserve"><value>尚无完成记录。</value></data>
+  <data name="TemplateTitle" xml:space="preserve"><value>每日模板</value></data>
+  <data name="TemplateHint" xml:space="preserve"><value>修改或删除模板只影响之后的日期。删除当天任务后，当天不会补回。</value></data>
+  <data name="Automatic" xml:space="preserve"><value>每天自动生成计划</value></data>
+  <data name="AddTemplate" xml:space="preserve"><value>添加模板</value></data>
+  <data name="WebDavTitle" xml:space="preserve"><value>WebDAV 同步</value></data>
+  <data name="WebDavHint" xml:space="preserve"><value>只同步阅读计划与历史，不上传密码或其他便签。</value></data>
+  <data name="Server" xml:space="preserve"><value>服务地址（https://…/dav）</value></data>
+  <data name="Username" xml:space="preserve"><value>用户名</value></data>
+  <data name="Folder" xml:space="preserve"><value>远端目录</value></data>
+  <data name="Password" xml:space="preserve"><value>密码</value></data>
+  <data name="PasswordHint" xml:space="preserve"><value>留空保留已保存的密码；输入新密码并保存即可更换。密码由 Windows 当前用户加密。</value></data>
+  <data name="AutoSync" xml:space="preserve"><value>自动同步（修改后同步，离线后自动重试）</value></data>
+  <data name="TestConnection" xml:space="preserve"><value>测试连接</value></data>
+  <data name="SaveSettings" xml:space="preserve"><value>保存同步设置</value></data>
+  <data name="SyncNow" xml:space="preserve"><value>立即同步</value></data>
+  <data name="StorageHint" xml:space="preserve"><value>同步只复用当前数据，不积累下载、冲突或历史副本。程序原有的固定安全备份保留。</value></data>
+  <data name="LocalOnly" xml:space="preserve"><value>已保存在本地 · 可在“计划与同步”配置 WebDAV</value></data>
+  <data name="Pending" xml:space="preserve"><value>已保存在本地 · 等待同步</value></data>
+  <data name="Syncing" xml:space="preserve"><value>正在同步…</value></data>
+  <data name="Synced" xml:space="preserve"><value>已同步</value></data>
+  <data name="Connected" xml:space="preserve"><value>连接成功（尚未上传阅读数据）</value></data>
+  <data name="SettingsSaved" xml:space="preserve"><value>设置已保存。可点击“立即同步”。</value></data>
+  <data name="InvalidEntry" xml:space="preserve"><value>请输入阅读名称。链接可留空，填写时请使用 http/https。</value></data>
+  <data name="ReadingSyncInvalidSettings" xml:space="preserve"><value>请检查 HTTPS 地址、用户名、目录和密码。</value></data>
+  <data name="ReadingSyncCredentials" xml:space="preserve"><value>无法解密密码，请重新输入并保存。</value></data>
+  <data name="ReadingSyncAuth" xml:space="preserve"><value>认证失败或无权限，请检查账号密码。</value></data>
+  <data name="ReadingSyncNetwork" xml:space="preserve"><value>网络暂不可用，本地记录已保留，稍后重试。</value></data>
+  <data name="ReadingSyncServer" xml:space="preserve"><value>服务器未完成请求，本地记录已保留。请检查目录权限或服务状态。</value></data>
+  <data name="ReadingSyncConflict" xml:space="preserve"><value>远端持续变化，本地记录已保留，稍后再同步。</value></data>
+  <data name="ReadingSyncInvalidData" xml:space="preserve"><value>远端数据损坏、版本不兼容或过大，已停止同步，未覆盖数据。</value></data>
+  <data name="ReadingSyncMissingEtag" xml:space="preserve"><value>服务器未提供可用于安全更新的 ETag，已停止同步以避免覆盖。</value></data>
+</root>

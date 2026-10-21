@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+<resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+<resheader name="version"><value>2.0</value></resheader>
+  <data name="Forgot" xml:space="preserve"><value>잊었어요</value></data>
+  <data name="Fuzzy" xml:space="preserve"><value>희미해요</value></data>
+  <data name="Remembered" xml:space="preserve"><value>기억해요</value></data>
+  <data name="ManageReading" xml:space="preserve"><value>읽기 항목</value></data>
+  <data name="ReadingDetails" xml:space="preserve"><value>진행 및 복습</value></data>
+  <data name="ReadingProgress" xml:space="preserve"><value>진행 (장 / 페이지)</value></data>
+  <data name="LinkedNote" xml:space="preserve"><value>연결된 메모</value></data>
+  <data name="NoLinkedNote" xml:space="preserve"><value>연결 없음</value></data>
+  <data name="MissingLinkedNote" xml:space="preserve"><value>이 기기에 연결된 메모가 없습니다</value></data>
+  <data name="OpenLinkedNote" xml:space="preserve"><value>메모 열기</value></data>
+  <data name="PauseReview" xml:space="preserve"><value>복습 알림 일시 중지</value></data>
+  <data name="SnoozeTomorrow" xml:space="preserve"><value>내일 복습</value></data>
+  <data name="SnoozeThree" xml:space="preserve"><value>3일 후 복습</value></data>
+  <data name="SnoozeSeven" xml:space="preserve"><value>7일 후 복습</value></data>
+  <data name="ResumeReview" xml:space="preserve"><value>복습 재개</value></data>
+  <data name="ReviewPaused" xml:space="preserve"><value>복습 일시 중지됨</value></data>
+  <data name="ReviewDeferred" xml:space="preserve"><value>복습을 {0}(으)로 연기</value></data>
+  <data name="NextStep" xml:space="preserve"><value>다음 단계 계획</value></data>
+  <data name="NextStepTitle" xml:space="preserve"><value>다음 읽기 이름</value></data>
+  <data name="NextStepAdded" xml:space="preserve"><value>{0} 읽기 계획에 추가됨</value></data>
+  <data name="ReadingSaved" xml:space="preserve"><value>읽기 정보를 저장했습니다</value></data>
+  <data name="ReadingConflict" xml:space="preserve"><value>다른 곳에서 변경되었습니다. 입력을 유지합니다. 다시 저장하면 이름, 진행, 메모 연결을 덮어씁니다.</value></data>
+  <data name="FeedbackHint" xml:space="preserve"><value>잊음: 내일 재시도. 희미함: 다음 간격 단축. 기억함: 기본 간격 유지.</value></data>
+  <data name="Back" xml:space="preserve"><value>뒤로</value></data>
+  <data name="OptionalUrl" xml:space="preserve"><value>링크 (선택)</value></data>
+  <data name="OverdueReading" xml:space="preserve"><value>이전 읽기</value></data>
+  <data name="EntryRemoved" xml:space="preserve"><value>삭제된 읽기 항목입니다. 입력을 유지합니다. 편집을 취소한 후 새로 추가할 수 있습니다.</value></data>
+  <data name="Dashboard" xml:space="preserve"><value>읽기 대시보드</value></data>
+  <data name="ReadingSettings" xml:space="preserve"><value>읽기 및 동기화</value></data>
+  <data name="History" xml:space="preserve"><value>날짜별 기록</value></data>
+  <data name="ReviewSettings" xml:space="preserve"><value>간격 복습</value></data>
+  <data name="ReviewScheduleHint" xml:space="preserve"><value>기본 간격은 읽은 후 1, 3, 7, 14, 30일입니다. 늦게 복습하면 다음 일정도 늦춰집니다. 간격을 변경할 수 있습니다.</value></data>
+  <data name="ReviewIntervals" xml:space="preserve"><value>복습 간격 (일)</value></data>
+  <data name="InvalidReviewIntervals" xml:space="preserve"><value>쉼표로 구분한 오름차순 일수를 최대 12개 입력하세요 (1–3650).</value></data>
+  <data name="ReviewHistory" xml:space="preserve"><value>복습 기록</value></data>
+  <data name="EmptyReviews" xml:space="preserve"><value>이날 복습 기록이 없습니다.</value></data>
+  <data name="DueReviews" xml:space="preserve"><value>복습 예정 · {0}</value></data>
+  <data name="ReviewDone" xml:space="preserve"><value>복습 완료</value></data>
+  <data name="ReviewDueDate" xml:space="preserve"><value>읽은 날 {0} · 복습 예정 {1}</value></data>
+  <data name="TodayReading" xml:space="preserve"><value>오늘 읽기</value></data>
+  <data name="AddReading" xml:space="preserve"><value>읽기 추가</value></data>
+  <data name="PaperName" xml:space="preserve"><value>논문 이름</value></data>
+  <data name="ArticleNameOrUrl" xml:space="preserve"><value>글 이름 또는 URL</value></data>
+  <data name="TemplateHintShort" xml:space="preserve"><value>템플릿 변경은 이후 날짜에만 적용됩니다.</value></data>
+  <data name="PasswordHintShort" xml:space="preserve"><value>비워두면 저장된 비밀번호를 유지합니다.</value></data>
+  <data name="CredentialHint" xml:space="preserve"><value>비밀번호는 현재 Windows 사용자로 암호화됩니다.</value></data>
+  <data name="ReadingPaperLimit" xml:space="preserve"><value>메모 수가 한도에 도달했습니다. 트레이에서 읽기 기록을 여세요.</value></data>
+  <data name="Less" xml:space="preserve"><value>적음</value></data>
+  <data name="More" xml:space="preserve"><value>많음</value></data>
+  <data name="PreviousDay" xml:space="preserve"><value>이전 날</value></data>
+  <data name="NextDay" xml:space="preserve"><value>다음 날</value></data>
+  <data name="SelectDate" xml:space="preserve"><value>날짜 선택</value></data>
+  <data name="Kind" xml:space="preserve"><value>읽기 유형</value></data>
+  <data name="AddPlaceholder" xml:space="preserve"><value>읽기 계획 추가…</value></data>
+  <data name="TemplateName" xml:space="preserve"><value>템플릿 이름</value></data>
+  <data name="DayProgress" xml:space="preserve"><value>{0} / {1}개 완료</value></data>
+  <data name="DailyPlan" xml:space="preserve"><value>매일 계획</value></data>
+  <data name="TodayProgress" xml:space="preserve"><value>오늘 완료 {0}</value></data>
+  <data name="OpenReadingJournal" xml:space="preserve"><value>읽기 대시보드</value></data>
+  <data name="ReadingSyncLockUnsupported" xml:space="preserve"><value>서버가 독점 WebDAV 잠금을 제공하지 않습니다. 덮어쓰기를 방지하기 위해 동기화를 중단했습니다.</value></data>
+  <data name="TemplateRemoved" xml:space="preserve"><value>다른 기기에서 삭제된 템플릿입니다. 복사할 수 있도록 입력을 유지합니다.</value></data>
+  <data name="TemplateConflict" xml:space="preserve"><value>다른 기기에서 변경되었습니다. 입력을 유지합니다. 덮어쓰려면 다시 저장하세요.</value></data>
+  <data name="Title" xml:space="preserve"><value>매일 읽기</value></data>
+  <data name="Subtitle" xml:space="preserve"><value>매일 읽고 완료한 일을 기록하세요.</value></data>
+  <data name="Journal" xml:space="preserve"><value>읽기 기록</value></data>
+  <data name="Settings" xml:space="preserve"><value>계획 및 동기화</value></data>
+  <data name="WeekSummary" xml:space="preserve"><value>이번 주 · 논문 {0} · 글 {1} · 활동 {2}일</value></data>
+  <data name="HeatTitle" xml:space="preserve"><value>읽기 활동 · 최근 20주</value></data>
+  <data name="HeatHint" xml:space="preserve"><value>연함 → 진함: 완료 0, 1, 2, 3, 4개 이상. 날짜를 선택해 확인하세요.</value></data>
+  <data name="DayCount" xml:space="preserve"><value>{0} · {1}개 완료</value></data>
+  <data name="Today" xml:space="preserve"><value>오늘</value></data>
+  <data name="TodayPlan" xml:space="preserve"><value>오늘 계획</value></data>
+  <data name="Paper" xml:space="preserve"><value>논문</value></data>
+  <data name="Article" xml:space="preserve"><value>글</value></data>
+  <data name="TaskTitle" xml:space="preserve"><value>읽기 제목</value></data>
+  <data name="LinkHint" xml:space="preserve"><value>링크 (선택 사항, http/https)</value></data>
+  <data name="Add" xml:space="preserve"><value>추가</value></data>
+  <data name="Cancel" xml:space="preserve"><value>취소</value></data>
+  <data name="Save" xml:space="preserve"><value>저장</value></data>
+  <data name="Delete" xml:space="preserve"><value>삭제</value></data>
+  <data name="Edit" xml:space="preserve"><value>편집</value></data>
+  <data name="Open" xml:space="preserve"><value>열기</value></data>
+  <data name="Complete" xml:space="preserve"><value>완료</value></data>
+  <data name="CompletedOnDate" xml:space="preserve"><value>이날 완료한 항목</value></data>
+  <data name="EmptyDay" xml:space="preserve"><value>이날 계획이 없습니다. 아래에서 추가하세요.</value></data>
+  <data name="EmptyCompleted" xml:space="preserve"><value>아직 완료 기록이 없습니다.</value></data>
+  <data name="TemplateTitle" xml:space="preserve"><value>매일 반복 계획</value></data>
+  <data name="TemplateHint" xml:space="preserve"><value>템플릿 변경은 이후 날짜에 적용됩니다. 당일 삭제한 항목은 다시 생성되지 않습니다.</value></data>
+  <data name="Automatic" xml:space="preserve"><value>매일 계획 자동 생성</value></data>
+  <data name="AddTemplate" xml:space="preserve"><value>템플릿 추가</value></data>
+  <data name="WebDavTitle" xml:space="preserve"><value>WebDAV 동기화</value></data>
+  <data name="WebDavHint" xml:space="preserve"><value>읽기 계획과 기록만 동기화합니다. 비밀번호와 다른 메모는 업로드하지 않습니다.</value></data>
+  <data name="Server" xml:space="preserve"><value>서버 주소 (https://…/dav)</value></data>
+  <data name="Username" xml:space="preserve"><value>사용자 이름</value></data>
+  <data name="Folder" xml:space="preserve"><value>원격 폴더</value></data>
+  <data name="Password" xml:space="preserve"><value>비밀번호</value></data>
+  <data name="PasswordHint" xml:space="preserve"><value>비워두면 기존 비밀번호를 유지합니다. 새 비밀번호를 입력하고 저장하면 변경됩니다. 현재 Windows 사용자로 암호화됩니다.</value></data>
+  <data name="AutoSync" xml:space="preserve"><value>자동 동기화 (변경 후 동기화, 오프라인 후 재시도)</value></data>
+  <data name="TestConnection" xml:space="preserve"><value>연결 테스트</value></data>
+  <data name="SaveSettings" xml:space="preserve"><value>동기화 설정 저장</value></data>
+  <data name="SyncNow" xml:space="preserve"><value>지금 동기화</value></data>
+  <data name="StorageHint" xml:space="preserve"><value>동기화 다운로드, 충돌, 과거 사본을 누적하지 않습니다. 앱의 기존 고정 안전 백업은 유지합니다.</value></data>
+  <data name="LocalOnly" xml:space="preserve"><value>로컬에 저장됨 · 계획 및 동기화에서 WebDAV 설정</value></data>
+  <data name="Pending" xml:space="preserve"><value>로컬에 저장됨 · 동기화 대기</value></data>
+  <data name="Syncing" xml:space="preserve"><value>동기화 중…</value></data>
+  <data name="Synced" xml:space="preserve"><value>동기화됨</value></data>
+  <data name="Connected" xml:space="preserve"><value>연결 성공 (읽기 데이터는 아직 업로드하지 않음)</value></data>
+  <data name="SettingsSaved" xml:space="preserve"><value>설정이 저장되었습니다. 지금 동기화를 선택하세요.</value></data>
+  <data name="InvalidEntry" xml:space="preserve"><value>읽기 이름을 입력하세요. 링크는 선택 사항이며 입력할 경우 http/https를 사용하세요.</value></data>
+  <data name="ReadingSyncInvalidSettings" xml:space="preserve"><value>HTTPS 주소, 사용자 이름, 폴더, 비밀번호를 확인하세요.</value></data>
+  <data name="ReadingSyncCredentials" xml:space="preserve"><value>비밀번호를 복호화할 수 없습니다. 다시 입력하고 저장하세요.</value></data>
+  <data name="ReadingSyncAuth" xml:space="preserve"><value>인증 실패 또는 접근 권한 없음. 계정을 확인하세요.</value></data>
+  <data name="ReadingSyncNetwork" xml:space="preserve"><value>네트워크를 사용할 수 없습니다. 로컬 기록은 유지됩니다. 나중에 재시도하세요.</value></data>
+  <data name="ReadingSyncServer" xml:space="preserve"><value>서버가 요청을 거부했습니다. 로컬 기록은 유지됩니다. 폴더 권한과 서버 상태를 확인하세요.</value></data>
+  <data name="ReadingSyncConflict" xml:space="preserve"><value>원격 데이터가 계속 변경됩니다. 로컬 기록은 유지됩니다. 나중에 동기화하세요.</value></data>
+  <data name="ReadingSyncInvalidData" xml:space="preserve"><value>원격 데이터가 손상되었거나 호환되지 않거나 너무 큽니다. 덮어쓰지 않고 동기화를 중단했습니다.</value></data>
+  <data name="ReadingSyncMissingEtag" xml:space="preserve"><value>안전한 업데이트에 필요한 ETag가 없습니다. 덮어쓰기를 방지하기 위해 동기화를 중단했습니다.</value></data>
+</root>

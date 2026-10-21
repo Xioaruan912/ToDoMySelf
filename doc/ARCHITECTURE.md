@@ -1,0 +1,545 @@
+# PaperTodo 架构
+
+> 本文记录 **PaperTodo 当前有效的技术选型、架构结构和已经确立的技术方向**。
+>
+> - 它回答“系统现在按什么原则组织、各层由谁负责、后续实现应沿什么边界继续”。
+> - 它不是代码目录、历史日志、PR 复盘或未来路线草案；任务入口与阅读顺序见 [`AGENTS.md`](AGENTS.md)，历史取舍和踩坑见 [`DECISIONS.md`](DECISIONS.md)。
+> - 具体执行细节仍以当前代码为准。若本文、代码或 Decisions 冲突，先核对当前实现、提交历史和可观察行为，再统一修正。
+
+## 1. 架构目标与当前方向
+
+PaperTodo 是 Windows 桌面“纸片”应用。当前技术路线围绕几个长期方向组织：
+
+- **paper 是主要对象和交互边界。** Todo、Markdown/Note、插件正文和 Edge Capsule 都围绕 `PaperData` / `PaperWindow` 组合；应用级能力由 `AppController` 协调，而不是默认把所有行为收束成一个中心主界面。
+- **每个职责尽量只有一个 authority。** 状态、几何、队列 placement、presentation、持久化和外部 mutation 不各自复制第二套“近似真相”。
+- **复杂 UI 状态优先走显式状态与单通道 reconcile。** Edge Capsule 使用 Intent → Reducer → Presenter；窗口和 controller 不通过并行 bool/临时 setter 绕过它。
+- **WPF 是主 UI / shape owner，native/DirectComposition 只承担确有必要的 Windows 边界能力。** 不把 compositor 扩成第二套 UI renderer。
+- **插件贡献内容/动作意图，宿主持有产品 chrome 与关键生命周期 authority。** Capsule、Edge Mini、Top Bar 都沿用这一方向；插件不能因为获得扩展点就接管 PaperWindow、Edge HWND 或顶栏 WPF tree。
+- **持久化按数据生命周期和失败语义分域。** 核心状态、图片资产、插件状态分别由各自 store 管理；破坏性恢复/回收采用保守策略。
+- **当前 Architecture 只记录已经确立的方向。** 未确认的未来方案、实验候选和一次性 workaround 不写成当前架构。
+
+技术基础：
+
+- .NET 10，目标 `net10.0-windows10.0.17763.0`。
+- WPF 是主 UI；Windows Forms 只作为兼容依赖。
+- 进程 DPI 策略：`PerMonitorV2,PerMonitor`。
+- 主项目入口为根目录 `PaPerMySelf.csproj`。
+
+## 2. 系统形态与 ownership
+
+正常 GUI 模式由 `App` 建立一个单实例 WPF 主宿主；`AppController` 是应用级协调器。相同的 `PaPerMySelf.exe` 还支持独立 `--mcp` bridge 模式，该模式在 GUI 单实例协议之前分流，不拥有第二份 `AppState`。
+
+高层关系：
+
+```text
+PaPerMySelf.exe
+├─ --mcp
+│   └─ McpBridge
+│       └─ stdio MCP ↔ GUI-side MCP runtime
+└─ GUI App
+    └─ AppController
+        ├─ AppState / StateStore
+        ├─ NoteImageStore (LMDB)
+        ├─ PaperBodyPluginRegistry / PaperBodyPluginDataStore
+        ├─ PaperCommandService
+        ├─ plugin Runtime[providerId] → logical Paper instances / Global Top Bar
+        ├─ paper Top Bar session registry
+        ├─ PaperWindow[paperId]
+        │   ├─ paper shell / Todo / built-in Note
+        │   ├─ PaperBodyHost
+        │   ├─ host-owned Top Bar renderer
+        │   └─ EdgeCapsulePresenter + EdgeCapsuleHost
+        ├─ MasterCapsuleWindow[queue]
+        ├─ EdgeCapsuleDragWindow (process-global pooled host)
+        ├─ tray / hotkeys / reminders / fullscreen runtime
+        └─ edge queue coordination / preview session / visual transaction /
+           DirectComposition proxy lifecycle
+```
+
+主要 authority：
+
+| 领域 | 当前 authority | 结构性职责 |
+| --- | --- | --- |
+| GUI 启动与进程生命周期 | `App` + `SingleInstanceHelper` | GUI 单实例、启动命令转发、全局异常边界、创建 `AppController` |
+| 应用级业务协调 | `AppController` | `AppState`、窗口集合、保存调度、托盘、全局 runtime、跨纸片协调 |
+| 核心持久化 | `StateStore` | `data.json` / backup 的加载、恢复和版本化写入 |
+| 图片资产 | `NoteImageStore` | LMDB 生命周期、串行访问、图片编号、缓存和回收 |
+| 插件状态 | `PaperBodyPluginDataStore` | provider settings、provider Runtime state 与 per-paper frontend state 的独立读写 |
+| 外部 Paper/Todo/Note 命令 | `PaperCommandService` | 插件/MCP 共用的验证、mutation、同步提交/回滚和事件发布 |
+| 单纸片 UI | `PaperWindow` | paper WPF shell、普通交互、provider 选择、子系统适配 |
+| paper-body session | `PaperBodyHost` | 当前 `IPaperBodySession` 的 attach / invoke / commit / dispose |
+| plugin Runtime | `AppController.PluginRuntime` | 每 provider 最多一个后端 Runtime；0→1 张实体插件 Paper 时启动、1→0 时释放，按 `paperId` 管理逻辑实例、后端 state、长期 presentation、Global Top Bar/Shortcuts、Todo actions、Top Bar labels 与 Workspace |
+| 插件发现与合同 | `PaperBodyPluginRegistry` | builtin / Native / Web provider 发现、校验、激活 |
+| 插件 Top Bar 注册 | `AppController.PluginTopBar` | Paper session action 与 Runtime Global action 的分域注册、输入校验 |
+| 插件 Top Bar 绘制 | `PaperWindow.PluginTopBar` | 宿主按钮、字符/SVG 图标、主题/字体/响应式与 suppression reconcile |
+| Edge 单纸片业务状态 | `EdgeCapsuleReducer` + `EdgeCapsuleModel` | 单纸片 typed intent 到完整 model 的原子变化 |
+| Edge 单纸片呈现 | `EdgeCapsulePresenter` | desired model、target plan、transition、applied frame、reconcile |
+| Edge 队列级协调 | `AppController` edge partials | preview owner/corridor、arrange、visual transaction、proxy lifecycle |
+| Edge 队列 placement | `EdgeCapsuleQueueCoordinator` | queue index、master offset、slot count |
+| Edge 物理几何 | `EdgeCapsuleGeometry` | monitor/edge/DIP 到 wall-pinned physical rectangles |
+| docked Edge surface | `EdgeCapsuleHost` | 每纸片 bounded HWND 和完整 WPF visual tree |
+| 同队列 compositor translation | `EdgeCapsuleQueueCompositionProxy` | live HWND surface 的 X/Y translation 与 visual-authority handoff |
+| floating drag | `EdgeCapsuleDragWindow` | 独立 floating pill HWND |
+| 同 Dispatcher 动画节拍 | `EdgeCapsuleFrameScheduler` + `EdgeCapsuleRenderDemand` | Rendering 唯一推进、共享 pointer/time sample、按组更新屏障；demand 只拥有就绪组的请求截止与取消 |
+
+## 3. 进程与运行时边界
+
+### 3.1 GUI 单实例
+
+本地 `PaPerMySelf` 开发副本与桌面已安装版并行运行：Mutex、激活管道和 MCP 管道采用 `PaPerMySelf-` 前缀；用户级背景/遥测配置、自启动注册项和临时文件目录使用 `PaPerMySelf` 名称。核心状态、图片和插件数据仍由原 store 保存在开发构建输出目录，不能指向桌面 `Todo` 目录。全新开发副本沿用默认关闭的全局快捷键，避免抢占日常版本快捷键。
+
+正常 GUI 启动使用 `SingleInstanceHelper` 的 Mutex + named pipe。只有主 GUI 实例建立 `AppController`；后续 GUI 启动只把参数转发给主实例后退出。
+
+`AppController` 尚未完成启动时收到的单实例命令先排队，待 controller 可用后再执行。普通纸片窗口全部关闭不等于退出应用，进程使用显式 shutdown 生命周期。
+
+启动恢复以 Windows 当前报告的显示器拓扑为准。普通纸片如果坐标本身有效、但启动瞬间不属于任何已报告显示器，只做一次很短的一次性宽限：其他纸片先正常恢复，宽限后刷新一次显示器事实，再决定保留原坐标还是执行既有离屏救援；不恢复 150ms 轮询、5 秒等待或第二套拓扑状态机。Edge Host 和其余可见纸片按当前拓扑恢复。`AppController.StartupPrewarm` 先等待既有 Markdown 预热队列的首轮完成，再在 UI Dispatcher 的低优先级短批次补建折叠纸片的完整 Shell；提前展开仍由 `EnsureShellBuilt` 当场完成所选纸片，不另建备用路径。Shell 完成 Task 供插件 startupPaper 等待，不使用 Shell-ready 轮询；插件初始化本身仍在 idle 阶段，不同步阻挡 StartAsync 返回。DComp 与拖拽的一次性可选预热保留，但不排在启动主流程返回之前。
+
+正常退出先提交当前编辑并完成既有同步保存，再撤下可见 surface；撤下界面不改变持久化 IsVisible。WPF/插件 UI 仍由原 Dispatcher 释放，脚本进程的停止请求和限时等待在非 UI 任务中并发执行，与界面清理重叠，最终统一等待完成。退出不为即将销毁的图片缓存执行额外回收，也不重复提交已由 controller 保存的编辑内容。普通主实例退出在已停止 owned work 后调用 `Application.Shutdown` 并让 Dispatcher 完成 `App.OnExit`、单实例监听和应用资源清理，不再紧接着调用 `Environment.Exit` 截断 WPF 生命周期；崩溃边界和次实例转发退出保持独立。
+
+### 3.2 MCP
+
+`--mcp` 是同一可执行文件的独立 bridge 模式。它在 GUI Mutex 之前分流，通过 stdio 暴露 MCP server；GUI 主宿主内部的 MCP runtime 由 `AppController` 管理。
+
+Codex CLI Bridge 通过单次 CLI 配置连接同一可执行文件的 stdio bridge；勾选 `allowMcp` 后，任务需要 MCP 且 MCP 或所需权限未开启时可发送 `--enable-mcp-for-codex` 单实例命令。GUI 主宿主重新检查插件实际运行状态和当前设置后，一次性开启 MCP 总开关、空白/追加写入、完整写入和直接删除权限。该命令等待主实例的实际执行结果：退出码 0 表示宿主执行成功，1 表示宿主拒绝或执行失败，2 表示主实例不存在或未收到确认；传输失败不重放已经发送的命令。没有现成 GUI 主实例时不启动或恢复纸片；普通 PaperTodo 功能开关（例如待办关联纸片）不由该命令自动修改。
+
+MCP 的 transport、权限策略和 bridge 生命周期不拥有 Paper/Todo/Note 的第二套业务写入逻辑；真正的业务 mutation 仍回到 GUI 主宿主和共享命令边界。
+
+公共软件设置由 `PaperSettingsService` 与显式的 `AppController.SettingsApi` 类型化目录统一处理；MCP、Native、Web 只适配参数、调用方权限和生命周期。`context.SettingsApi` 与插件私有 `context.Settings` 分离，不向 Workspace 必需接口加入 AppState 字段读写。普通 UI 设置值（主题、字体、显示、脚本、MCP、启动项和背景偏好等）与 API 共用此服务及生效函数；快捷键录制草稿、批量恢复默认和退出时收集输入仍属于各自的交互/命令流程。普通设置变化通过既有 live region 更新对应区域；主题、字体与设置模式才重建整页，外部后缀编辑器保持原实例并同步成功提交的值。核心设置提交到 StateStore 后再发布 UI/Runtime 生效，失败恢复原值及联动状态；Windows 启动项与背景偏好沿用原存储 owner。插件 List/Get 使用 `settings.read`，Set 使用 `settings.update`；MCP Set 继续使用完整写入授权。MCP 关闭自己时停止接收新连接，但保留当前响应及既有超时/退出取消边界。
+
+跨纸片显示控制由插件可选 `IPaperWorkspacePresentationApi` 与 MCP 适配器进入共享 `AppController.PresentWorkspacePaper` / `ApplyPaperPresentation`，不将窗口请求塞入正文业务事务。2.1 自身纸片控制也复用同一 controller dispatch，但保留 session/provider 范围。窗口、焦点、胶囊资格、动画及常规保存仍由既有 `ShowPaper` / `HidePaper` / `SetPaperCollapsedRuntime` 等流程拥有，不另存显隐状态；返回值只承诺处理后的逻辑状态，不承诺动画完成或同步落盘。内容写入的同步提交/回滚语义不因此改变。展示请求只建立事件来源边界，不预先提交其他纸片的内容；Paper/Todo/Note 内容 mutation 仍统一走 `PaperCommandService` 的同步提交/回滚路径。外部写入只有在目标本身是正在编辑的内置 Markdown 时，才先把该目标的待提交文字写回模型，再执行插件/MCP 修改；修改其他目标不会调用无关第三方正文的 `Commit()`。后续核心保存仍按正常规则同步 PaperTodo 自己的内置 Markdown。该能力属于 API 2.2，但不新增插件 permission 或 MCP 完整写入门槛；MCP 仍受总开关控制。
+
+### 3.3 辅助进程与插件 Runtime
+
+Web 插件使用 WebView2；Native 插件可以自行创建线程、Worker、子进程或第三方运行环境。这些实现细节属于插件内部，不成为 PaperTodo 的第二套 `AppState` authority。
+
+插件协议当前最新为 **2.2**，最低兼容 **2.1**；2.0 及更早版本不再加载，高于当前实现的未来版本也拒绝加载。`apiVersion` 表示插件最低依赖的宿主 API：2.1 插件可继续运行，使用 2.2-only 能力的插件必须声明 2.2。需要在可见 Body/Mini 不存在时仍持续工作的插件声明 `runtime`：PaperTodo 对每个 provider **最多只创建一个 Runtime 后端**。`startupPaper` 先处理真实 Paper；之后只要最终至少有一张 `Note` Paper 的 `BodyProviderId` 指向该 provider，Runtime 就存在。0→1 启动，1→0 释放；隐藏、折叠、Body 重建、Mini 回收和当前没有 `PaperWindow` 都不改变 Runtime lifetime。
+
+一张 Paper 不再对应一个后台 Runtime。多开插件仍然只有一个 provider Runtime，Runtime 通过 `PaperId` 管理 N 个逻辑实例；需要额外线程、Web Worker、子进程或隔离域时，由插件在自己的 Runtime 内部创建和回收，宿主不提供第二种“每 Paper 后台”协议。
+
+Native 与 Web 使用同一生命周期语义：Native Runtime 是一个长期 C# 对象；Web Runtime 是一个隐藏 WebView/JS 页面。实现载体不同，但 `Settings`、provider `State`、`Papers`、Workspace、Global Top Bar/Shortcuts 和失败重启边界保持一致。
+
+Runtime 的 provider `State` 与 Body/Mini 的 per-paper frontend state 分开保存。Runtime 可以在一份后端 JSON 中按 `paperId` 保存自己的业务实例；Body/Mini 的 `StateJson` 只保存前端/纸片 UI 状态。这样后台和前端不会争抢同一个持久化 writer。
+
+当 provider 声明 Runtime 时，**长期 Paper presentation 由 Runtime 唯一负责**：标题、Header、胶囊通过 `Papers` 按 `paperId` 发布。Body/Mini 负责可见 UI，并通过 `Runtime.Post(...)` 发送用户操作；Runtime 可以通过 `Papers.PostToBody(...)` 向当前存在的 Body 前端推送消息。2.1 的 Todo actions 与 Top Bar labels 同样属于 Runtime 生命周期内的易失宿主 presentation。宿主只保证薄路由和明确失败，不提供业务消息总线、ACK、exactly-once、自动 retry 或状态冲突合并。
+
+### Web 生命周期边界
+
+**PaperTodo 管 Web Surface，不管 Web App。** 宿主负责单个 provider Runtime WebView、Body/Mini WebView 的创建/销毁、local origin 与 bridge、renderer 失败后的 surface 恢复以及粗粒度资源预算；插件负责 timer、网络连接、业务任务、内部并发和重试。
+
+Body/Mini 是 Paper 的前端 surface，可以被隐藏、重建或回收；Web Mini 在离开预览一段时间后可由宿主释放并在下次使用时重建。Web Runtime 是 provider 的唯一后台 surface，不随某张 Paper 的 UI 生命周期创建第二份后台 WebView。
+
+可见前端与后台 Runtime 不依赖共享 localStorage/cookie 作为业务协议；跨 surface 协作走 Runtime/Papers bridge。`commitRequested` 仍只是前端 best-effort 生命周期通知，可靠状态应在业务变化时及时保存。
+
+PaperTodo 不提供插件热重载入口。插件 manifest、DLL、Web body/mini/runtime 等文件的安装、删除或修改统一在下次启动 PaperTodo 时重新发现并生效。
+
+### Plugin Runtime 2.1 最终边界
+
+- 一个插件最多只有一个 `PluginRuntime` 后台；真实 Paper 通过 `paperId` 作为逻辑实例接入。Runtime 是否存在只取决于是否至少有一张真实 Note Paper 使用该 provider，与 Paper 当前隐藏、折叠、Body/Mini 是否存活无关。
+- `Body` / `Mini` 是前端 surface。声明 `runtime` 后，长期后台状态和动态 Header/Capsule presentation 由 PluginRuntime 持有；宿主不创建 per-Paper 后台 Runtime。
+- 每张 Paper 的 frontend/body state 写入上限是 **10 MiB**；整个 provider 的 PluginRuntime state 写入上限是 **20 MiB**。二者是独立额度。既有超限数据仍可读取，宿主不会截断；只有新的写入会按所属层级拒绝。
+- Runtime state 若来自高于当前插件 `stateVersion` 的版本，宿主拒绝启动该 Runtime，保留原数据并把插件标记为 Issue；旧版本 state 可以由插件读取后自行迁移。
+- Body/Mini -> Runtime 消息不跨 Runtime interruption 排队。Web renderer 暂不可接收时 `runtime.post(...)` 明确失败为 `runtime_unavailable`，绝不返回成功后静默丢消息。业务重试、去重和时效判断属于插件。
+- 首次 Runtime 启动失败直接进入 `Failed`，不自动重试；修改设置或下次正常启动可再尝试。已经成功运行后的 Web renderer 最多先就地 reload 一次；需要宿主重建整个 Runtime 时，每个进程生命周期也只给一次立即重建机会，不使用 Backoff、失败计数或定时重试。重建期间保留最后一次 Runtime presentation，再失败则进入 `Failed` 并清除动态展示。
+- `Papers.List()` 是 Runtime 启动时的全量快照；`Papers.Subscribe(...)` 只报告订阅后的增量，不为启动前已存在的 Paper 重放 `PaperAdded`。删除 provider 最后一张 Paper 时，若当前仍有存活且可投递的 Runtime lease，宿主在撤销 lifetime 前先 reconcile 并投递最终 `PaperRemoved`；启动/重建中、`Failed` 或 Web document 不可投递期间不承诺该事件必达。
+- Todo actions 与 Top Bar labels 是 2.1 的 Runtime contribution，随 Runtime/目标对象生命周期撤销，不进入长期业务持久化。
+
+## 4. 状态与持久化架构
+
+### 每日阅读（本地开发扩展）
+
+`AppState.ReadingPlan` 保存阅读模板、按日期的阅读条目、完成日期、复习间隔及复习实体，继续由 `StateStore` 唯一写入。`ReadingPlanService` 负责当天幂等生成、完成统计、复习到期计算和实体合并；自动生成 revision 0，不能覆盖真实编辑或删除。生成日期集合阻止当天删除后补齐，不补生成离线未打开应用的日期。
+
+`builtin.reading` 是独立的「每日阅读」Note 纸片，与普通 Todo/每日计划分离；已有开发版阅读纸片沿用原 ID 和位置，只校正默认名称。`ReadingPaperBodySession` 及其独立原生 mini 是同一阅读域的视图，正文提供名称/链接编辑和完成操作，正文与 mini 均显示待复习并可确认复习。正文与 mini 同时保留此前未完成阅读及当天补完成阅读的操作入口，允许当天撤销；首次启动先保留原默认 Todo，再初始化阅读扩展，新增阅读纸片不改全局胶囊偏好。宿主继续拥有胶囊/窗口/预览生命周期，控件和新增行动画复用原项目实现。阅读纸片自定义标题用于页头和胶囊，阅读刷新不覆盖用户命名。`ReadingWindow` 只承载独立阅读足迹看板，包括周统计、热力图及按日期的阅读/复习历史，不含阅读编辑器或设置。`ReadingSettingsPanel` 挂载在原生设置侧栏，拥有模板/复习/WebDAV 表单草稿，切页和主题刷新保留同一面板，远端更新不丢失未保存的模板输入。
+
+复习由阅读完成日期和已完成轮次派生；后续间隔从实际复习日计算，逾期不在同一天追刷多轮。“忘了”在次日重试当前轮次，“模糊”完成当前轮次并将下一间隔减半（向上取整、至少一天），“记住了”按原间隔继续。每次尝试有独立记录，稳定 ID 由来源 ID、阅读完成日期、轮次及尝试序号确定，首次尝试沿用原 ID；复习不增加阅读完成数。条目自身保存进度、现有 Markdown 笔记 ID、暂停和推迟日期；取消完成/删除来源后停止待复习。手动下一步按来源、名称及日期去重，创建独立阅读条目。阅读子协议为 schema 3，可升级 schema 1/2；旧客户端拒绝未来协议以防字段静默丢失（D-060）。
+
+阅读详情在纸片内部编辑，草稿按条目保留，切换条目或返回列表不丢输入；远端修改需再次保存确认，删除后不复活。笔记关联只保存 ID，打开复用 `ApplyPaperPresentation`，目标不存在时保留关联并提示；笔记正文不进入同步。
+
+`AppState.ReadingSync` 仅为本机设置，密码由当前 Windows 用户 DPAPI 加密。WebDAV 单个 `reading-plan.json` 只包含阅读业务记录，不包含凭据、窗口位置、普通纸片、图片或插件数据。同步在内存中下载、校验和合并，不建立本地同步历史、下载文件或冲突副本；已有固定 `data.backup.json` 安全备份仍由原策略管理。
+
+同步必须持有短期独占 WebDAV LOCK，再次 GET 后合并、携带锁令牌 PUT，finally UNLOCK；版本条件可用时同时发送，但不依赖服务遵守 If-Match。完整请求及响应正文受 40 秒 deadline 保护，释放锁另有 3 秒上限。非空非法/未来版本数据停止同步，LOCK 初次创建或中断遗留的零字节占位资源可在持锁时以本地数据初始化。在途同步使用快照，返回时与当前 UI 状态再次合并，保留期间的修改；设置变化和退出取消旧请求。自动同步为修改后五秒防抖及两分钟重试。
+
+### 4.1 三个数据域
+
+当前长期数据按语义拆成三个主要域：
+
+| 数据域 | 当前存储 | authority | 方向 |
+| --- | --- | --- | --- |
+| 核心应用与纸片状态 | `data.json` + `data.backup.json` | `StateStore` | 保持可迁移、可恢复的结构化业务状态 |
+| Note 图片二进制 | `note-assets.lmdb` | `NoteImageStore` / `LmdbImageDatabase` | 大体积二进制与 JSON 分离，独立做引用/容量管理 |
+| 插件 settings / Runtime state / per-paper frontend state | `plugins/data/*.json` | `PaperBodyPluginDataStore` | 插件后端、前端与核心状态解耦，提供单文件读写 |
+
+这三类数据不能因为“都属于一张纸”就合并成一个写入协议。核心状态保存、图片回收和插件状态读写具有不同失败语义，因此保持各自 authority。
+
+单文件发布版的用户数据目录由 `PaperTodoDataPaths` 统一解析为 `%USERPROFILE%\.PaperTodo`，开发构建仍保持可执行文件旁的便携布局；`PAPERTODO_DATA_DIR` 可显式覆盖。`data.json`、`data.backup.json` 和 `note-assets.lmdb` 共用该目录，插件数据目录不随之迁移。首次单文件启动会把旧版 EXE 同目录的核心状态、备份和图片数据库一次性迁移过去；迁移失败时继续使用旧目录，不能以空状态覆盖旧数据。
+
+### 4.2 核心状态
+
+`AppState` 是核心持久化根；`PaperData` 是单纸片模型；Todo 行使用 `PaperItem`。普通 Todo 的 `PaperItem.Priority` 为 0/1/2（普通/中/高），`IsUrgent` 为独立紧急标记，旧数据缺失时取普通且非紧急。标记不自动重排；显式排序修改既有 Order，优先未完成、紧急、优先级，组内保留原顺序。两字段经 `TodoRules.Clone`、GUI 历史及 `PaperCommandService` 回滚/撤销快照完整保留，仍由 StateStore 写入；不加入阅读同步协议。
+
+删除、隐藏、折叠是不同语义：
+
+- 删除从 `State.Papers` 移除对象。
+- 隐藏保留对象，仅改变可见性。
+- 折叠仍是可见纸片，只切换到 capsule presentation。
+
+普通窗口 `X/Y/Width/Height` 与 Edge Capsule 的 queue / expanded recovery geometry 不是同一套状态，不能由 parked/hidden shell 相互覆盖。
+
+Edge 展开记忆保留原有窗口 DIP 字段，并用可选 `DeepCapsuleExpandedDpiScale` 记录捕获时的 HWND 缩放；队列 monitor/side 只标识记忆归属。恢复先还原物理矩形选屏，再以目标屏 DPI 计算尺寸，通过原生窗口边界和既有布局确认完成回位。旧数据缺少缩放信息时沿用系统 DPI 的兼容解释，不猜测其原屏幕；下一次真实展开窗口保存后补齐。
+
+`StateStore` 的方向是保守恢复与版本化写入：主文件失败后可从 backup 恢复；需要保护失败源时先保留证据再允许正常保存覆盖。保存阶段只修复序列化无效值，不重新解释业务不变量。
+
+全局 crash boundary 不执行普通“最后强行保存”。正常 durability 由常规保存、同步退出保存和 backup 提供。
+
+### 4.3 图片资产
+
+图片二进制不进入 `data.json`。`NoteImageStore` 统一串行化 LMDB 访问，外部业务代码不直接拥有 LMDB transaction authority。
+
+Markdown 中的 Note 图片只通过 PaperTodo 内部 `i:` asset URI 引用宿主管理的图片；网络图片或任意外部图片不是当前 Note 图片资产协议的一部分。
+
+图片 GC / id reuse 是破坏性操作，因此 reachability 采用 fail-closed：无法可靠证明当前状态和需要保护的 recovery snapshot 都可扫描时，本轮不回收。
+
+### 4.4 插件状态
+
+插件 settings、Runtime state 与 per-paper state 由 `PaperBodyPluginDataStore` 独立保存在每个 provider 的普通 JSON 文件，不塞回 `data.json`。文件不存在才使用默认状态；已有文件读取失败则原样报告失败，不缓存空数据、不切换恢复文件。保存沿用写临时文件再替换的一次写入完整性。后台保存只在数据锁内捕获各 provider 的版本与独立快照，序列化和写盘在锁外由单一写入通道串行完成；旧快照的完成或失败不清除后续修改，也不消耗后续修改的重试预算。删除纸片时立即移除内存中的插件附属状态，再进入相同的延迟保存流程。普通退出等待在途写入并保存最新状态；系统退出的禁止最终保存入口等待在途写入后阻止新写入。插件自己的备份、恢复或数据库由插件管理，宿主不为其维护第二数据路径。旧恢复文件不再自动选用，也不自动删除或迁移。插件页和快捷键注册使用已有的局部错误展示/失败状态，不让单个插件的数据错误终止其他插件配置。
+核心 `data.json` 保存只同步 PaperTodo 自己的内置 Markdown 编辑状态；第三方 `IPaperBodySession.Commit()` 仍是正文生命周期的 best-effort 回调，不作为核心保存或其他纸片外部写入的全局保存钩子。
+
+## 5. Paper 与 paper-body 插件
+
+### 5.1 Paper shell
+
+`PaperWindow` 是单纸片 UI owner，负责普通 paper shell、Todo/Note 交互、标题/工具栏、窗口行为和各子系统适配。
+
+窗口交接的同步 Render 等待和正文回调允许同一 Dispatcher 上的外部命令重入。`AppController` 的批量隐藏与浮层 z-order 更新只遍历本次入口的窗口集合；隐藏复用既有逐纸片 visibility version，后到的显示／删除命令使旧目标失效，旧淡出回调也不能再修改新显示的 opacity 或图像资源。关闭过程由 `PaperWindow.CloseForReal` 的调用范围防重入，但在 compositor 交接完成前仍保持 Alive、接受精确端点；交接或正文回调返回后复核生命周期，Closed 不得回退到 Closing。
+
+Edge Capsule 启用后，一张纸的可见 surface 不再等价于一个 `PaperWindow` HWND：docked capsule 由 `EdgeCapsuleHost` 提供，跨队列/脱墙拖拽可以临时使用 `EdgeCapsuleDragWindow`；这些 surface 仍引用同一 `PaperData`，不复制业务对象。
+
+内置 Markdown Note 的编辑态和浏览态复用同一个 `MarkdownTextBox`，通过 interaction/presentation 状态切换，而不是维护两套正文 surface。
+
+`AppState.PaperSkin` 保存表面材质，与 `ColorScheme` 的不透明语义配色分开。缺失字段时 `PaperSkins.Resolve` 从旧 `colorScheme=mica` 与 `MicaBackdropType` 迁移；显式未知皮肤回退默认纸片，旧配色 ID `mica` 保留为「素灰」，不再单独决定是否开启原生背景。`StateStore` 的既有规范化与保存路径持有新字段，不新增状态文件。所有皮肤读取保存的 `ColorScheme`，包含云母与两种亚克力。`MaterialPalette` 独立持有按材质调校的表面色、透光密度、原生 tint、柔化与固定浏览态预设；`Theme` 的正文和插件语义画刷保持不透明且不改写配色选择。Neutral 保留系统材质的原生颜色。
+
+三种装饰皮肤由 `SkinBorder` 绘制：描图纸固定纤维、Aero 和像素风。材质不管理布局、命中或窗口；Edge shape/layout 与 DComp translation-only 边界不变。`MaterialRelief` 仅为 Aero 缓存预算内的边缘高光，`SkinBorder.Aero` 只按宿主位置更新 Aero 的视差，不运行空闲动画。`MatchAuxiliaryMaterialStrength` 关闭时减弱辅助表面的背景柔化并增加更接近普通纸片的可读性底层；开启时使用完整强度。两档都不衰减正文、外轮廓或整窗 opacity。分层小窗口的云母／亚克力／描图纸使用局部场景 Gaussian diffusion 近似；不声称等同系统 Mica 壁纸算法，主窗口 DWM 不变。Aero 小窗口直接使用既有 alpha。失效、高对比度、系统禁用透明或部分透明时保留实色回退。已删除的皮肤 ID 由通用 Normalize 回退 paper，没有保留旧材质绘制。
+
+配色由 `Theme` 提供实色语义；原生皮肤只让成功启用原生背景的窗口外壳透明，不把透明画刷传入正文、菜单或插件颜色协议。启动时 `AppController.UsesNativeMicaWindows` 根据已保存的皮肤选择和系统支持决定普通纸片与设置窗口是否使用 non-layered HWND；同一会话不重建编辑器或修改 `AllowsTransparency`。`WindowChrome` 单独负责 non-client/glass 集成；`NativeMicaBackdrop` 在窗口所属 Dispatcher 上管理 DWM 材质与系统事件，`DwmMicaApi` 封装 DWM API，并将透色亚克力的旧版 accent 接法隔离在单一方法内。普通纸片的动画宽高、外边距和缩放能力统一由 `PaperWindow` 的形态动画管理，材质适配器不监听布局或反向改写窗口尺寸。原生窗口在形态动画入口暂时关闭系统缩放外框并固定动画所需的最小尺寸，完成或中断时恢复目标形态的尺寸与缩放能力；每帧先更新内层纸面，再一次提交 HWND 的宽高，不通过两次 WPF 尺寸属性写入制造中间矩形。`PaperFormContentHost` 在形态过渡中按展开尺寸测量和排列现有正文，避免缩小的布局槽在 RenderTransform 之前产生隐式裁切；终点恢复普通伸展，不重建或迁移正文。原生材质退出时先在现有 `SkinBorder` 记录不透明替代绘制，再于该 WPF 渲染操作之后执行一次原生回退并同时启动各动画时钟；准备、取消与关闭由原形态生命周期收束，不新增补帧定时器，也不把此提交边界称为物理显示确认。材质形态动画和普通材质胶囊使用受当前留白限制的缓存软边绘制，避免整块内容阴影；Aero 过渡只复用现有光照绘制的八块素材，终点恢复完整光照，不截图或建立长期素材池。内层纸面和外层 HWND 使用同一进度，展开态零外边距与胶囊阴影外边距连续过渡。主纸片形态动画复用辅助采样暂停，当前场景保留到最终布局完成后再恢复采样；反转、隐藏与关闭沿现有形态生命周期收束。原生会话中的展开纸片填满 HWND，不保留 8 DIP 阴影外边距或 WPF 外壳阴影，不使用 `SetWindowRgn` 裁成内层纸片；系统圆角与外框交给 DWM，并使用纸片边框色；原生材质生效时隐藏 WPF 外壳描边，保留其布局厚度，避免两套圆角描边重叠。顶栏与设置外壳采用对应的内外圆角。原生 HWND 的 caption 恢复 COLOR_DEFAULT，不再给透明自绘顶栏下方盖一条实色 native caption；材质皮肤的 WPF 顶栏本身不再画独立底色、分隔描边或外边距，由唯一外壳材质连续绘制其下方；默认纸片仍沿用主线轻 tint，不改真实激活状态。纸片缩放命中仍由原有窗口消息逻辑处理。描图纸复用标准 Acrylic 原生背景。Aero 的内部 `aeroGlass` recipe 改为既有清透 alpha composition，不调用 state=3 或 state=4 模糊；蓝色透光与柔化斜反光由 WPF 绘制。它不读取桌面、不启动采样，也不改变截图可见性；原生 alpha 不可用时保留静态不透明表面。透色亚克力的 state=4 与其清理路径保持独立。见 D-051。标准云母与标准亚克力先关闭 legacy alpha，安装系统 backdrop。Windows 11 26100+ 成功启用 `DWMWA_REDIRECTIONBITMAP_ALPHA` 后采用零实际 glass margin，不再留下单独的 native caption 底板；能力调用失败时保留 full glass（-1），禁止仅清零而不提供 alpha 通道。透色亚克力试用零物理 glass margin 加 `SetWindowCompositionAttribute` 的可调色 accent policy，关闭原生 border 避免最顶端亮线，关闭系统 backdrop 且不再叠加 WPF 底色；两条接法只有全部设置成功后才让外壳透明。离开透色模式、动画回退和释放时清除 accent，再进入目标材质；`WindowChrome` 保留非零 glass 标志，避免其零值分支安装窗口 HRGN；透色 accent 与 aeroGlass 使用零实际 glass，系统 Mica/Acrylic 仅在显式 redirection alpha 成功后使用零实际 glass，否则保留 full glass；不增加第二套 NCCALCSIZE 或形状修改。原生材质、清透 alpha 与 accent 仍互斥。“材质始终显示激活效果”由适配器在原生材质生效时通过 `WM_NCACTIVATE` 保持活动外观，不改真实焦点、`WM_ACTIVATE` 或交互状态；关闭勾选或材质回退时恢复实际激活外观。失败/关闭效果恢复实色，但不恢复展开纸片的外层留白。普通纸片折叠、形态动画或部分透明时关闭原生背景并使用 WPF alpha 绘制，恢复 Mica 前先清除 legacy blur-behind alpha；显示动画提交不透明终点后移除整窗 opacity 时钟。Edge、drag、master、tether 胶囊仍是原有 layered HWND，不进入这个原生适配器；背景处理由表面按需持有的 `SkinBorder.BackgroundSession` 管理，也不改变 DComp translation-only ownership。原生云母不读取壁纸、截屏或维护背景纹理缓存；自动化测试的桌面截图仅用于验证正文未被遮盖或压暗（见 D-042）。
+
+
+`SkinBorder` 负责绘制和可选背景层的接入，画刷与几何缓存分开：配色只使画刷失效，尺寸只使几何失效，动画或采样开关不重建编辑器与顶栏图标。`Theme.MaterialColors` 缓存当前材质配色。`SkinBorder.BackgroundSession` 按需持有后台采样、最新帧、位图和呈现订阅；普通纸片、展开原生材质和设置窗口不创建采样会话，也不注册软件采样宿主观察。`MaterialSurfaceHost` 仅为需要采样的辅助表面或 Aero 透光／视差观察真实 `HwndSource`、宿主位置、DPI、可见性与祖先透明度，不使用菜单 owner 代替 popup，不接管输入或形态几何。窗口销毁／源释放／卸载解除订阅并停止对应资源。`DwmMicaApi` 的透明效果和 composition 状态由系统事件使缓存失效，不在移动热路径反复读注册表；仅切换“保持激活外观”不重新安装原生背景。
+
+`DesktopBackgroundCapture` 在本机内存中用 SRCCOPY 取得一次局部 SDR 背景，按窗口像素预算生成冻结位图，再将像素与坐标一起交给表面；显示期间保留该 scene，位置变化只重新投影，不运行轮询、逐帧上传或可写位图更新。胶囊拖动使用一次半分辨率虚拟桌面快照，贴边与浮动表面共享纹理，结束后再取得最终局部背景。每个已有辅助表面由 `SkinBorder` 合并队列交接与拖动准备这两个暂停原因，起拖即撤销局部采样，不等待拖动结果返回才排他。两类采样共用作用域内的原生截图排除清理；取消必须同步恢复 affinity，旧 worker 退出只能幂等释放自己的资源，不能修改复用 HWND 的新生命周期。`BackgroundSession.Stop` 只释放 scene／capture，不解除仍由外层持有的暂停。暂停阻止新采样，但不阻止材质模式、系统效果或拖动透明度失效时的正常回退；队列 cover 的合法呈现淡出仍保留 live source 像素。菜单的内侧保护区覆盖最强模糊核；背景视觉位于正文之前，Aero、展开纸片和设置窗口不采样。
+
+`MaterialMenuOpening` 只延后需要软件背景的菜单打开请求。每次请求拥有一个取消生命周期；关闭或 owner 卸载仅撤销该请求，异步任务独自负责释放，迟到结果不得重新打开菜单或进入后续请求。成功时在 HWND 出现前上传冻结首帧，最终 WPF arrange 决定位置，再用 SetCurrentValue 重放仍有效的打开请求；不恢复系统淡入，不增加预热窗口或前景隐藏。失败／超时仅在本次使用静态回退。设置切页继续保留原生外壳和同一编辑器；首次 Clear Acrylic 仍等待实际 ContentRendered。`MaterialRelief` 只复用相同深度／法线的 Aero 直边照明，圆角仍解析计算，逐像素结果与未缓存算法对照。理由与历史修复见 D-053；当前一次性静态快照与拖动纹理边界见 D-054；真实 Windows 11、HDR、混合 DPI 和高刷新率观感仍需人工验收。
+
+普通浮动纸片的失焦标题栏由 `PaperWindow.ExperimentalFocusPresentation` 管理：保留原始 HWND 和 shell 布局，`PaperChromeBorder` 只将无内容的背景 Border 收短，并在阴影生成之前裁剪标题内容，形成完整的圆角、描边和阴影。正文保持原位置与尺寸；完全透明区由分层窗口命中机制允许点击穿透，原窗口边缘的缩放区域不会移入正文。此路径仅适用于 `AllowsTransparency` 窗口，折叠、隐藏和 Snap 等边界会恢复完整外框。
+装饰性 `SkinBorder`（描图纸、Aero、像素风）暂不参与失焦标题栏裁切；这些自绘材质继续保持完整表面，避免缩短 helper surface 与完整材质绘制叠加。默认纸片及可走基类绘制的表面沿用 `PaperChromeBorder`。
+
+### 5.2 Provider / session 分层
+
+Provider 当前分三类：
+
+- Built-in Markdown。
+- fully trusted / unsandboxed Native .NET/WPF plugin。
+- 本地 Web plugin，通过宿主 WebView2 运行。
+
+`PaperBodyPluginRegistry` 负责 provider 发现和合同校验；`PaperBodyHost` 负责一张纸当前 session 的 attach / invoke / commit / dispose；`PaperWindow` 仍拥有窗口 placement、paper chrome 和 provider 选择。
+
+插件文件不在当前进程中做热重载。安装、删除或修改插件目录后统一重启 PaperTodo，让下一进程重新完成 manifest discovery 和所需 runtime/DLL 激活。
+
+正文创建失败仍显示已有错误页；主题、字号、激活、失活、缩放等普通会话通知失败只记录本次错误，不提交或销毁现有正文。
+
+### 5.3 外部读写
+
+插件 `Workspace` 与 GUI 侧 MCP 对 Paper/Todo/Note 的共享业务 mutation 统一进入 `PaperCommandService`。该边界负责：
+
+- 参数和类型约束；
+- mutation 前提交仍停留在 UI/provider session 的待提交内容；
+- 保存成功才完成外部 mutation；
+- 保存失败回滚内存状态；
+- 提交后刷新必要 UI 并发布外部变更事件。
+
+Paper/Todo/Note 及笔记图片查询只读取当前模型/资产，不提交任何正文、不主动同步编辑器。查询可能暂时落后于正在输入的文字，由原编辑/保存流程正常同步；内容 mutation 的准备、同步保存和失败回滚边界不变。
+
+跨纸片 show/hide/expand 等展示请求只建立事件来源边界并调用既有展示入口，不预先提交其他纸片的内容。公共设置不再在保存前额外提交一遍所有编辑器；序列化时所需的同步仍由保存入口负责。提交后的 UI 刷新只执行一次，异常记录日志，不整段重试。
+
+transport 权限、Web/Native surface 生命周期、Top Bar presentation 和 MCP protocol 不下沉到 `PaperCommandService`；反过来，transport/presentation 层也不建立另一套核心 mutation 实现。
+
+### 5.4 Plugin Protocol 2.x
+
+当前最新插件协议是 **2.2**，宿主继续加载 **2.1** 插件。2.1 已发布能力保持原语义；2.2 新增的 manifest/API 契约必须由插件显式声明 `apiVersion: "2.2"`。宿主不接受 2.0 及更早版本，也不接受高于当前实现的未来版本。
+
+- 2.1 保留 Top Bar、provider Runtime、快捷键、自定义 shortcut action、Mini / Workspace 等既有合同。
+- 2.2 新增 `startupPaper.presentation: hidden`、settings `type: action`、公共 Application Settings API 及 `settings.read/update` 权限。
+- 新增宿主内部行为、bugfix 或复用既有通用协议原语时不升版本；新增插件可观察的字段、类型、权限、事件、API surface 或新语义时升 minor。破坏既有插件合同才升 major。
+
+#### Protocol 2.1 Top Bar
+
+Top Bar 是宿主 chrome/presentation capability，不是 Workspace 数据 API，而且 **Paper 与 Global 有不同 owner**：
+
+- **Paper scope**：属于当前 `PaperBodyContext.TopBar` / paper-body session，只作用于承载该 session 的纸片。
+- **Global scope**：属于 `PaperPluginRuntimeContext.GlobalTopBar` / provider Runtime。该 runtime 只在 provider 当前至少有一张实体插件 paper 时存在；它不属于其中任意一张具体 paper，也不依赖 paper 的可见性、展开状态或 body session。
+
+当前稳定边界：
+
+- `startupPaper` 在启动阶段先决定是否创建/恢复真实插件 paper；之后才按最终实体 paper 集合 reconcile Global Runtime。Protocol 2.2 的 `presentation: hidden` 仍创建真实 Runtime-owner Paper，但普通启动恢复不创建可见 surface；显式宿主 paper action 仍可随后显示/展开它.
+- Protocol 2.2 插件 settings 的 `action` 是无持久化值的命令按钮：`paper.*` 复用已有目标选择与 presentation 路径，自定义 ID 复用 provider Runtime 的 GlobalShortcuts handler / Web `shortcutInvoked` 投递，不要求配置热键。可用性由现有实体 Paper / Runtime handler lease 决定，点击时再次核验；不另建 callback、任务或重试协议。隐藏 startupPaper 只在普通启动恢复前归一化，延迟 startupPaper 阶段不再覆盖用户刚刚发出的显示/展开操作。
+- 运行中 provider 从 0→1 张实体插件 paper 时启动 Runtime，从 1→0 时 Dispose；删除、隐藏、折叠非最后一张不会撤销 Global action。
+- `PaperWindow` 始终拥有顶栏 WPF tree、按钮尺寸/位置、主题、Hover、DPI、字体缩放和 responsive layout；插件只提交 action descriptor。
+- 图标只接受短字符或受限 SVG/WPF Path Data；Path 可以按宿主前景色 Fill 或 Stroke，不接受完整 SVG document、WebView 或任意 WPF tree。
+- Paper scope 只作用于承载当前 session 的纸片；插件只能请求隐藏 `NewTodoPaper` / `NewNotePaper`，关闭、置顶、标题拖动和窗口生命周期不属于插件可删减区域。
+- Global scope 每 provider 只有一个 Runtime owner；仅安装插件、但没有实体插件 paper 时不产生 Global UI。
+- Global 点击带目标 `PaperId` / `Type` / `BodyProviderId`；需要读取或修改目标正文时仍走 Runtime Workspace → `PaperCommandService`，Top Bar 不复制业务 mutation。
+- Runtime Workspace / GlobalTopBar facade 会把 Native 后台线程调用 marshal 回宿主 UI Dispatcher；paper session presentation 仍沿用自己的 WPF Dispatcher 生命周期。
+- 用户设置决定宿主按钮 base visibility，插件 suppression 是最终 paper-local reconcile 层。
+- Paper session Dispose 自动回收 Paper contribution。Web body 的 Paper contribution 进一步绑定当前 body document generation；导航、renderer failure 或 body document replacement 会撤销旧 Paper contribution。
+- Web Global action 由独立 `runtime.html` app surface 注册。runtime document 导航、renderer failure、最后一张实体插件 paper 消失或 Runtime Dispose 都会撤销 Global contribution；Web Mini 不拥有 Top Bar 注册权。
+
+为什么选择 host-rendered descriptor、Paper/session 与 Global/Runtime 分域，而不是插件直接拥有顶栏控件或把 Top Bar 塞进 Workspace，见 D-022。
+
+### 5.5 Edge mini
+
+插件可以提供专属 mini、允许迁移的纯 WPF 正文 View、custom/standard capsule presentation 或 plain-text fallback，但 **Edge 的窗口、queue placement、外层尺寸会话和输入 authority 始终属于宿主**。
+
+当前技术方向是“插件贡献内容能力，宿主决定如何安全呈现”：
+
+- Native mini 只接纳 fresh / unparented / pure-WPF tree。
+- Web `miniEntry` 使用独立 Web mini surface；它自己的 ready/publication 时序属于 Web session 实现，不把 WebView2 当作可迁移 WPF child。
+- 正文 View migration 只对 provider 明确声明且宿主可以安全接管的纯 WPF View 启用。
+- 没有专属能力时由宿主降级到 capsule/plain text。
+
+具体 fallback 次序、尺寸和 ready 时序属于当前 contract/代码实现；为什么形成这些边界见 D-018。
+
+### 5.6 插件右键入口、图片读取与临时弹窗
+
+`PluginPaperActionRegistry` 只拥有 Runtime 对指定纸片的文字菜单贡献；`PaperWindow` 在既有右键菜单中呈现并分发，注册替换、目标删除与 Runtime 结束撤销旧回调。它不构建第二套顶栏，也不改变胶囊呈现或命中机制。
+
+图片读取由 session / Runtime facade 检查 `notes.read`，进入 `PaperCommandService.ReadNoteImage` → `NoteImageStore.TryReadOwnedImage`，在既有存储锁内检查笔记归属与编码大小并返回独立字节，不复制持久化 authority。
+
+`PluginPopupHost` 为既有 session / Runtime 承载一个临时、可交互窗口。右键与原有顶栏点击传递一次性的屏幕位置；宿主只在显示时约束到工作区，以窗口失活作为关闭边界，不监视原控件或来源窗口的位置。窗口内容与主题由插件处理，壳和释放由宿主处理；它不是 Paper，不延长 provider Runtime 存活，也没有常驻独立窗口入口。
+
+Web 弹窗复用可见 WebView 环境及本地 origin。普通网页/邮件链接交给与正文共用的系统外部打开入口，弹窗自身不导航；下载限制和消息作用域不变。独立文档消息校验仅服务于主题、初始数据、只读图片、向创建者发消息及关闭；不复制通用 Workspace 写入桥。Body / Runtime 网页导航回收对应弹窗和菜单贡献，进程故障分类与现有 Web Runtime 共用。API 用法以 `plugin-samples/README.md` 为准。
+
+### 内置笔记的边缘预览
+
+边缘预览是有界导航内容，不是第二个可编辑正文。`MarkdownEdgeCapsulePreviewRenderer` 捕获一次受限文本，尺寸估算与显示使用相同内容预算；行内语法复用正文的 `MarkdownSemanticSnapshot`，块级保留现有有限预览语义，不解析预算外正文或引用定义。
+
+冷渲染与预热共用唯一的 `PrepareArtifactAsync`：UI 捕获内容、样式、字体、DPI 和资源冻结副本，共享 `MarkdownLayoutWorker` STA 完成 `TextFormatter` 排版，UI 校验外观后组合冻结 Drawing、尺寸、截断状态与全局链接矩形。普通短行也走这条路径，不保留 WPF block renderer、重段落控件或同步渲染退路。保留的短/长行装饰差异只用于兼容既有画面，不再决定 renderer。Worker 不持有 UI 控件、可变语义缓存或业务回调；需求优先于预热，按可见行短批次让出并检查取消，空闲时等待 Dispatcher。
+
+`MarkdownEdgePreviewPreload` 只筛选、排队并缓存合格来源的完整 artifact。边缘浏览开启时，保留全部重内容；不足目标数量时按三档逐步放宽，从后续档位补足，跨档只取缺额。同档优先保留已入选来源，再按稳定注册顺序选择，空内容不占名额。候选只包含当前存活、可见且已进入边缘队列的内置 Markdown 纸片；弱 reader 与有界内容由同一预热队列保留，内容未变时复用分类，扫描逐来源让出 UI。删除、离队或内容变化通过原合并延迟重新选取并补位，不增加轮询或第二套调度。启动恢复直接唤醒首批工作，使用现有 Edge Host 和模型生成预览，不等待折叠纸片的完整 Shell。队列暴露本轮完成 Task 供可选 Shell 预建排序，日常失效与调度仍由队列自身拥有。首次标题和胶囊 UI 初始化不把未变化的 Markdown 内容当成编辑作废；实际文本规范化、编辑及资源变更仍走原失效路径，后续编辑保留一次性合并延迟。每来源最多一份当前结果，不做鼠标邻居预测或固定数量淘汰；内容版本、摘要、宽度、字体、缩放、DPI 和资源必须匹配。预热准备到卡片高度上限，较矮 viewport 本地裁剪；冷 miss 只准备实际可见范围，不把不完整的短结果冒充通用预热。缓存不构造或保留隐藏 View/Body，不借出或归还控件。
+
+`MarkdownEdgeCapsulePreviewViewport` 是唯一的准备、取消和发布 owner：命中取 artifact，未命中异步调用同一个 builder，两者都进入 `Publish`，挂载一个正文绘制面及原生链接控件。只有完整结果发布后才启用正文输入；链接的捕获、释放、焦点和键盘由 `MarkdownPreviewLinkHit` 保留 WPF 行为，完全裁掉的链接禁用，背景仍交给打开纸片手势。同一视图、内容和尺寸可短暂收起后复用；内容、外观、DPI 或尺寸失效重新准备，卸载释放挂载元素。
+
+需求的源版本与可选预热缓存资格分开：清空缓存不能阻止当前预览正常生成，但源已失效、上层刷新尚未送达时，旧版本仍不得准备或发布。关闭、移出队列和清空撤销缓存资格；有效预热请求被需求打断后可重新排队。Host 尚未就绪或尺寸暂不可用的 reader 休眠保留，只由 Host Loaded/Visible 或容量恢复唤醒；菜单、输入锁和手势不再被当作 artifact 准备资格。恢复一个来源不会打断另一个来源正在进行的预热，失败或永久失效目标不持续轮询。Host 仍提供资源、DPI、尺寸和实际输入边界，`Describe` 仍在 UI；正文等待不持有动画/窗口交接屏障，不改变 D-027 的编辑正文语义。当前选择及历史取舍见 D-035。
+
+## 6. Edge Capsule V3 Lite
+
+V3 Lite 的当前方向不是“再叠一个更聪明的代理”，而是保持 **单一 per-paper presentation authority + 极薄 native/compositor 边界**。
+
+### 6.1 单纸片状态与呈现
+
+主链：
+
+```text
+OS / WPF / controller event
+        ↓
+EdgeCapsuleIntent
+        ↓
+EdgeCapsuleReducer
+        ↓
+EdgeCapsuleModel
+        ↓
+EdgeCapsuleTargetPlanner
+        ↓
+EdgeCapsulePresentationPlan
+        ↓
+EdgeCapsulePresenter reconcile / transition
+        ↓
+EdgeCapsulePresentationFrame
+        ↓
+EdgeCapsuleHost.Apply(frame)
+```
+
+`EdgeCapsuleReducer` 决定单纸片业务状态；`EdgeCapsulePresenter` 是该纸 desired model、target、transition、applied presentation 和 dirty/deferred work 的唯一 presentation authority。
+
+Pointer intent 先服从 model 的逻辑准入：`Slot=None` 或 `PeerReorderActive` 时，`SamplePointer` 不得恢复 `PointerOverSurface`。Detach 可以先于旧可见 frame 的清理，旧 `InteractiveBounds` 仍命中不能重新建立已经撤销的逻辑归属。合法 docked/floating 手势仍保留 attached slot，重新 Attach 后恢复正常采样；结构断言和正常物理命中规则不放宽。
+
+`EdgeCapsuleTargetPlanner` 是纯 desired-model → shape/layout planner，一次生成完整 `EdgeCapsulePresentationPlan`。关闭悬停预览时的完整标题宽度和零字标题可见性也进入同一 layout/target/frame 合同；host capacity 提前覆盖标题展开宽度，普通悬停不反复缩放 HWND。Docked surface 与 `FloatingFree` 是互斥外形；floating 的宽度、圆角、关闭区和其他 shape 语义不由窗口构造参数或拖拽路径另行拼装。
+
+`AppController` 可以协调跨纸片 session、向多张纸 dispatch intent、捕获事务 frame，但不维护第二份 per-paper desired model。
+
+Measure / display-metrics 也是同一 presentation reconcile 的输入，而不是第二套状态入口：非拖拽时更新 layout snapshot 并从当前已呈现帧 retarget；正在 docked/floating drag 时相关 refresh 延后到 gesture 边界后处理，不反向改写 Hover / Active / slot / gesture 语义。
+
+### 6.2 Queue placement 与 geometry
+
+队列由 monitor + edge 标识。`EdgeCapsuleQueueCoordinator` 只负责 index、master offset 和 slot count；`EdgeCapsuleGeometry` 只负责 monitor/edge/DIP 到物理像素矩形。
+
+`EdgeCapsuleLayoutSnapshot` 捕获的是**目标 monitor** 的 `MonitorGeometry` 与 DPI；docked 物理矩形必须基于这份目标显示器事实计算，不能退回主 `PaperWindow` 的当前 DPI 或在动画/measure 路径重新复制一套换算。共享 capsule 尺寸和队列布局参数从 `PaperLayoutDefaults` / `EdgeCapsuleLayout` 等统一来源进入 layout/planner。
+
+队列保持完整顺序，不引入分页/自动隐藏 overflow。分页会把 placement 问题升级成另一套 visibility/state ownership，因此当前方向仍是连续完整队列。
+
+Presentation contract 区分：
+
+- `Bounds`：当前真正可见的 capsule rectangle。
+- `HostBounds`：bounded docked HWND 的 native capacity。
+- `InteractiveBounds`：当前真实输入区域。
+
+透明 capacity 不属于交互区域。
+
+### 6.3 Surface 切分
+
+每张 docked capsule 由独立 `EdgeCapsuleHost` 长期拥有真实 HWND 和完整 WPF visual tree。Host 是 **bounded live host**：native capacity 稳定且有限，可见 shape 在其中由 WPF 变化。
+
+跨队列/脱墙拖拽使用独立、进程级复用的 `EdgeCapsuleDragWindow`，不把 docked host 变形成自由 floating pill。
+
+开启 collapse-all master 时，每个队列的 `MasterCapsuleWindow` 占 slot 0，只拥有自身 presentation/gesture，不持有真实 paper 的第二套 presenter state。主胶囊纵向拖动仍只改变该队列的起始高度；横向脱墙后由 controller 建立一次 queue transfer，成员临时 retract，并租用同一个进程级 `EdgeCapsuleDragWindow` 作为普通 `FloatingFree` 外观。普通胶囊与主胶囊共用浮层的 Render 准备、原生拖动及目标就绪后的 flush/cover 释放；各自 owner 保留单纸片 presenter 或整队业务。队列提交先完成当前布局计划与旧 master 清理，再进入可重入的目标呈现边界；已提交事务不再取消仍由调用方持有的浮层 lease。松手只原子更新起拖时实际占槽成员的 monitor/edge、队列起始高度与 collapse 状态，再回到正常 arrange；隐藏或不占槽的纸片保留原队列身份与配置。事务捕获源队列的持久 monitor 别名，提交前重新核对逻辑成员和顺序；成员变化则取消，不把显示器断连后的 live fallback 或临时 retract 当成成员变化。取消恢复手势按下时起始高度的数值与缺省状态；master 本身不变成 Paper，也不新增 presenter authority。
+
+### 6.4 WPF 与 DirectComposition
+
+当前明确的职责切分：
+
+**WPF / bounded host owns shape；DirectComposition owns translation。**
+
+WPF / Presenter 负责：
+
+- Resting / Hover / Active / Preview 的可见宽高；
+- rounded geometry；
+- 内容布局与 opacity；
+- `InteractiveBounds` 等 presentation contract。
+
+DirectComposition queue proxy 负责：
+
+- 从真实 HWND 建立 live surface；
+- 保持 surface identity / size；
+- 只做 X/Y translation；
+- 在真实 HWND 已受 cover 保护时帮助 queue 成员完成位置移动和 visual-authority handoff。
+
+边缘浏览材质由已呈现帧的 `DockedPreview` 标记选择：`EdgeCapsuleHost.Apply` 在几何更新前让 `SkinBorder` 使用同材质固定色调与 alpha 的静态表面和细高光，展开／收回期间不随大小、强弱档或采样准备状态改变底色，不进行桌面采样、像素着色、法线条纹重建或指针光效订阅。退出浏览的形态过渡仍保持此路径，回到紧凑胶囊终态后恢复普通材质；不改变 frame、内容、命中或 HWND ownership。
+
+当 queue proxy 保留真实胶囊 HWND 作为 live source 时，该 source 暂停新的辅助材质采样并立即释放正在进行的采样租约，但保留已经呈现的静态材质 scene 供 live surface 使用；只有 compositor handoff 已把 visual authority 归还真实 HWND 后，才在终点重新取得一张局部静态快照替换旧 scene。采样租约不能跨 cloak／cover authority 边界，也不能因此扩大 proxy envelope 或真实 HostBounds 的输入区域。后台采样只投递一个成功或失败终态通知，已取消任务不得发布结果；晚到的拖拽快照仍按当前材质资格接收，不恢复已经关闭或切成轻量预览的背景。
+
+Production translation backend 不承担 snapshot、clip/scale/effect resize 或另一套 deferred-resize presentation model。需要 shape/size 变化时，回到 WPF bounded host 或明确 native fallback 边界。
+
+### 6.5 Visual authority 与 handoff
+
+真实 docked HWND、queue compositor cover、floating drag HWND 是显式 visual authority。任何 publication、successor、handoff 或 rollback 边界都必须保证至少有一个可见 authority。
+
+同队列 successor 继承 predecessor 当前 live authority 和可见 sample，而不是 dispose 后冷启动另一套互不相关 proxy。端点提交期间 predecessor 仍可继续移动；successor 校准起点后，显示取样、输入命中、点击坐标转交和下一代临时 cover 均使用本代 `VisualState` 实际提交给 DComp 的起止偏移及同一动画时钟，不能继续沿用较早捕获的 plan 起点。该校准只调整平移，WPF 的形状、内容、opacity 和真实端点容量仍沿用原有 presentation contract。
+
+代理收到按下消息时保存原始客户区坐标转换得到的屏幕位置和按键状态。只有这次按下触发的同步 authority handoff 当场成功，才把该按下消息转交给真实端点；一旦需要 completion retry、cover 丢失或目标已失效，就直接丢弃该按下，不跨重试保存或迟到重放。该路径只转交原始按下消息，不承诺合成完整按下—抬起手势；正常 Windows 输入仍由真实端点接管。
+
+Proxy 动画逻辑结束不等于 real WPF 已经可以接管。只有 terminal real/WPF presentation 已完成必要的 apply/layout/render/verify 边界后才撤 cover；completion timer 只负责发起完成尝试，不作为 correctness proof。动画准入可使用近似帧比较，但结束或取消 timeline 后必须提交精确的 target frame，不能沿用仅在容差内相等的 opacity／材质状态，否则会与 handoff 的精确一致性验证永久冲突。真实失败仍走既有有界 retry 与 cover-loss 生命周期，不把普通终帧不一致伪装成 compositor 丢失，也不通过新增恢复层或放宽 verify 掩盖它。
+
+Display/DPI、z-order、drag 结束、隐藏/关闭 Edge 模式等生命周期边界如果会让现有 surface/queue 失效，先结束或恢复当前 visual authority，再清理 preview、retraction、临时 placement/transaction 等 transient state；这些临时状态不能跨失效边界残留到下一次显示或重新启用。
+
+### 6.6 Pointer、Preview corridor 与帧节拍
+
+Hover/Preview 的最终物理 truth 来自当前 presented/applied `InteractiveBounds`。WPF/native enter/leave 主要负责唤醒采样，透明 `HostBounds` 和 proxy envelope 不能扩大 hit area。进入／离开 `DockedRetracted` 的主胶囊整队 proxy 是纯视觉 authority，output HWND 在 cold stage 之前一次性切到原生 layered + transparent passthrough；该 native 模式不在同一 HWND 上反向恢复。master generation 释放后直接退休这一 output host，后续 interactive proxy 使用新的／未进入 passthrough 的 host；同一 host 的 successor 不能跨越 master/interactive 输入角色。不能只依赖 envelope 内的 `HTTRANSPARENT` 来承担跨应用穿透。
+
+Preview session 建立后，当前 owner 是 queue-wide 的 pointer arbiter：owner、候选 target、transfer corridor 和 outside 都由同一 controller 路径解析，host/WPF 输入适配层只提供物理采样，不复制另一套 preview 状态机。owner 与可浏览候选的 `InteractiveBounds` 是真实命中区；连续可交互成员之间的 transfer corridor 只是允许指针跨空白移动的临时连续区域，不是新的 capsule hit area。指针真实离开合法 transfer region 时属于硬边界，预测逻辑不能把 outside 改写成 inside；pointer capture 期间则暂停这类离场判断，避免正在进行的交互被 corridor watcher 抢走。
+
+首次没有 preview session 时，经过验证的真实物理命中可以直接建立 owner；已有 session 内的 A→B transfer 则继续使用当前 residence/stability/predictor policy。具体毫秒数和灵敏度属于实现参数，留在代码。
+
+同一 Dispatcher 的 presenters 共用 `EdgeCapsuleFrameScheduler`，transition 只由 `CompositionTarget.Rendering` 推进。每次合法通知按共享 QPC 时间推进；`RenderingTime` 是 WPF 的预计呈现时间，可以被不同通知复用，不用它充当唯一帧编号去重。待处理 reconcile 与 visual transaction deferral 只阻挡所属 native batch group，其他就绪队列继续逐帧推进；跨队列事务仍按同一 transaction group 原子处理，原生 apply 重入保护不变。没有就绪队列时暂停 Rendering 订阅，更新或事务的最后一个 owner 释放后重新检查并恢复订阅；全部结束后取消订阅。
+
+`EdgeCapsuleRenderDemand` 为仍有活动 transition 且当前就绪的 native batch group 保存独立请求截止，以该组实际采样使用的 QPC 刷新。共享的可重设单次 timer 只将一个带 generation 的请求送回 UI Dispatcher；执行时重新核对组的就绪状态，通过公开 Rendering add 路径请求 WPF 工作，并在 `finally` 移除临时空 handler。它不采样 pointer、不推进 frame、不补算错过的历史帧，也不承诺固定帧率；具体请求延迟留在代码。
+
+组失去活动动画或受到 reconcile、transaction、外部 native apply 阻挡时，撤销其旧截止；无就绪组、取消或 shutdown 时撤下待执行请求。组恢复后重新建立请求资格，无关组的合法采样不延后另一组的截止。工作线程只接触截止、generation 和单个投递槽，不访问 Presenter/WPF 状态；取消或重启可同步进入 Dispatcher Hooks，旧回调不得覆盖新代。shutdown 在事件入口先锁存，再撤销 demand 与订阅，避免后续事件处理器在 Dispatcher 状态字段更新前重新激活。
+
+普通 reconcile 使用 Render 优先级并保留原有 owner registration；真实 Host 输入需要提前处理时，将同一待执行操作提升到 Send，完成后释放原 registration，不另建一套输入或帧状态。上述 demand 已用于正常运行，Debug 观察开关不决定其是否启用。
+
+Debug 包可显式启用内存诊断：`EdgeDiagnosticObservation` 观察既有输入、调度、presentation 与 native 调用，使用独立的观察编号关联事件，不拥有或推进 transition，也不额外订阅 Rendering。`EdgeDiagnosticJournal` 在有界内存中保存 QPC 事件和原有调试文本，退出时封存为独立进程/session 的日志；采集期不启动日志写盘计时器。容量耗尽明确记丢弃数，异常退出尽力封存，强制终止不保证保留。调度回调和 WPF applied frame 仍不是物理显示帧，测量方法及开销对照见 E-006。
+
+定位等待可在上述 Debug 采集之上显式开启 `PAPERTODO_EDGE_DEEP_OBSERVATIONS=1`：`EdgeDispatcherLatencyObservation` 通过现有 Dispatcher hooks 和提交前通知读取已经存在的 WPF MediaContext；私有字段缺失只降低可观察能力，不成为运行依赖。`EdgeNativeLatencyObservation` 检查进程和线程归属，仅对当前 UI 线程自有 HWND 建立 subclass，在原生几何批次内记录下游消息耗时，原参数和返回值原样转发一次。两者退出时解除观察，不新增 Rendering 订阅、调度操作或补帧计时器；Release 不编入。深层采集有成本，仅用于诊断，不能据其回调/消息耗时声称物理帧率；同包关闭对照、实际 WPF 调用点和边界见 E-008。
+
+进一步显式开启 `PAPERTODO_EDGE_MESSAGE_OBSERVATIONS=1` 时，`EdgeMessageLatencyObservation` 观察现有 Dispatcher/MIL/WM_TIMER 的队列时间，只对当前进程 UI 线程自有的 MIL 通知 HWND 建立有界 subclass，保留原消息链和返回值；可再以 `PAPERTODO_EDGE_DWM_OBSERVATIONS=1` 读取公开 DWM 时钟。队列年龄用 Win32 `GetTickCount` 与 `MSG.time` 的同一时钟域，毫秒单位不代表毫秒精度；它不能测量定时器应到未到的时间。观察器不提交渲染或请求高精度计时，随既有深层观察解除，Release 不编入；同包开销对照和证据边界见 E-013。
+
+这些原则的历史原因、失败路线和不可回退点见 D-005～D-014；当前可撤销 render demand 见 D-038，D-032 保留此前移除直接补帧与建立 owner 屏障的历史。
+
+## 7. OS 与全局集成
+
+`AppController` 还协调：
+
+- Hardcodet tray icon / context menu；
+- 全局快捷键；
+- foreground fullscreen 检测和 topmost avoidance；
+- display metrics / DPI 更新；
+- Todo reminders；
+- virtual desktop integration；
+- 可选窗口 magnetism / tether 等实验 runtime；
+- GUI 侧 MCP runtime。
+
+全局 watcher 可以触发 visibility、z-order、monitor placement 等变化，但进入具体 Paper/Edge surface 后，仍应回到对应 subsystem authority，而不是在 watcher 中复制 geometry 或 presentation state。
+
+托盘当前基于仓库固定的 `vendor/wpf-notifyicon` 和 WPF `IconSource`；选择该路线的历史原因见 D-017。
+
+### 7.1 单纸片菜单与顶栏快捷操作
+
+展开纸片的 `···` 入口与外框右键共享 `PaperWindow.BuildPaperContextMenu` 的实时菜单。菜单恢复「快捷」与当前纸片名称分组、「设置」入口；纸片正文、图片及插件仍可提供自己的上下文菜单，纸片菜单内不再提供自定义顶栏设置。
+
+顶栏的固定控件始终是置顶、标题、`···` 和关闭／折叠。可选内置操作只有「新建待办」「新建笔记」「关联拖拽」「外部编辑」。`AppState.TopBarShortcutOrder` 保存全局唯一的四项顺序，`TopBarPinnedCount` 表示位于「显示在顶栏」与「显示在菜单」两区域之间的分界。设置 → 常规中的可拖拽列表可在两区内排序或跨区移动；无复选框、无插件配置、无待办／笔记切换。对当前纸片不适用的操作只在渲染时跳过，不修改全局配置。旧版本的 per-type 列表或更早的三个布尔设置由 `StateStore` 在读取时一次性迁移为固定项并集，之后只有新布局为状态 authority；现有公共设置 API ID 仍可将对应项跨越分界线。
+
+用户选入顶栏的适用内置按钮**整组显示或整组临时收纳**；窗口缩小时不会只留下其中一部分，收纳不会改变分界位置。插件操作不参与用户设置，自动使用内置快捷组之后的剩余空间，Paper-scope 动作原子显示、Global-scope 按优先级缩减，插件状态文字最后使用剩余宽度。共享菜单按全局配置顺序列出未在顶栏显示的内置操作、未展示的插件动作，不重复当前顶栏按钮；其中关联拖拽在菜单里仍使用原来的 drag handler。菜单在打开时刷新，即使右键菜单实例已经缓存，也会与 `···` 一致；插件只提供 descriptor，不持有顶栏或菜单生命周期。
+
+### 7.2 单窗口交互手势
+
+单张展开纸片的窗口级关闭手势由 `PaperWindow` 接入，但**不复制关闭业务语义**：
+
+- `Ctrl+W` 在 HWND 边界注册，使纸片已经成为前台窗口但 WPF 暂时没有 keyboard-focus target 时仍能响应；`PreviewKeyDown` 只保留为 WPF routed-key fallback。
+- 标题区中键采用 mouse-down / mouse-up 同区确认，只在展开且未进入高级交互锁定时触发。
+- 两种手势最终都向现有 `_closeButton` 发送同一个 routed `Click`，因此“关闭按钮此刻意味着折叠、隐藏还是其他既有策略”仍只有一个 owner，不在快捷手势中复制。
+- 从 `NOACTIVATE` 胶囊显式打开纸片时，在初始形状就绪后、边缘队列交接和展开动画启动前请求激活，以 OS foreground HWND 为最终 truth；必要时补 `Activate` / foreground 请求后再 `Focus`，避免 WPF `IsActive` / focus 状态残留在旧窗口。鼠标事件后的焦点修复只在同代纸片仍拥有前台时执行，不排队重试激活；同步激活引发的回调若取消、反转或关闭纸片，不再启动旧动画。
+
+纸片实际隐藏与销毁前共用 `PaperWindow` 的前台交接入口，以当前 OS foreground 和实时 Z-order 选择仍可操作的下一窗口；批量隐藏已标记不可见的纸片不参与接替。业务关闭语义、数据删除与辅助 owner 生命周期不由此入口改变。后台撤下、退出和用户已切走时不主动激活；不保留旧前台窗口、不排队重试抢焦点。
+
+### 7.3 匿名使用统计
+
+`TelemetryService` 是可关闭的独立统计子系统：只聚合每日使用计数和粗粒度运行环境，不上传纸片/待办/Markdown 正文、图片、路径、剪贴板或机器/硬件标识；crash 只保留计数与粗粒度签名。关闭后停止采集并清除未发送统计。
+
+上传是异步 best-effort 的 `daily_usage` 批次，不影响产品正常行为。客户端使用随机安装 ID 和确定性 `report_id`；接收端只接受白名单字段，原始日志允许 at-least-once，分析时按 `report_id` 保留最新记录去重。
+
+## 8. 仓库结构
+
+- `src/`：主程序 C# 源码。
+- `Resources/`：中文默认资源及 en/ja/ko 本地化 `.resx`。
+- `PaperTodo.Plugin.Abstractions/`：插件 ABI / host contract。
+- `plugins/`：可直接加载的插件产物；`plugins/data/` 保存宿主管理的插件状态。
+- `plugin-samples/`：插件源码、示例和构建说明。
+- `native/`：PaperTodo 自有 native 组件，例如 LMDB bridge。
+- `vendor/`：固定版本 vendored dependency（托盘 fork 源码随仓库提交，不使用 submodule）。
+- `assets/`：图标和静态资源。
+- `doc/`：当前架构与历史决策文档。
+- `website/`：GitHub Pages 站点资源。
+- `.github/workflows/`：CI / Release / Pages 部署。
+
+根目录保留项目入口和仓库级入口：`README`、`CHANGELOG`、`AGENTS.md`。
+
+---
+
+## Built-in Note Markdown semantic / presentation
+
+内置 Markdown Note 只有一份 `MarkdownTextBox` / AvalonEdit `TextDocument`。编辑态与浏览态不创建第二份 rendered document，也不走 HTML/WebView。
+
+```text
+MarkdownTextBox
+    ├─ input / caret / selection / undo / paste / image interaction
+    │
+    └─ TextDocument
+         ↓
+MarkdownSemanticDocument
+    └─ same-thread full/small + best-effort local publication
+         ↓
+MarkdownSemanticSnapshot
+    └─ PaperTodo-owned source spans / line traits / links / compact line indexes
+         ↓
+MarkdownSemanticPresentation
+         ↓
+same AvalonEdit TextView
+```
+
+- **Markdig 是内置 Note 的唯一 Markdown 语义 authority。** renderer、链接交互、列表 Enter、code/fence 判断和图片是否位于 code 区都读取同一份 semantic snapshot，不保留第二套手写 Markdown parser/fallback。
+- `MarkdownSemanticDocument` 与 AvalonEdit `TextDocument` 保持同线程、单一当前语义。初次建立总是同步全文 Markdig parse；正文少于 8000 字符时，每次完整 `TextChanged` 也直接同步全文 parse。较大 Note 的普通编辑先取一次约 1K 的行对齐局部窗口，并依据上一份 snapshot 中已知的跨行 span/link 自动扩到必要的已有 semantic container。若本次修改可能新建、删除或改变顶层 ``` / ~~~ fenced-code 状态，则只用轻量 `MarkdownFencedCodeScanner` 比较旧/新状态，并沿未修改后缀扩窗直到状态重新一致或到达 EOF，再把最终窗口交给 Markdig；scanner 只发现边界，不发布正文语义。明显涉及 reference definition / reference use 的全局依赖直接拒绝局部路径，由 caller 同步全文 parse。其他新产生的超远距离 Markdown 结构仍属于编辑期 best-effort，不承诺每个按键后整个文档立即与一次全文 Markdig parse 全局等价。没有 guard proof、1K→16K retry、per-editor parser worker、pending/stale generation 或并发 publication。
+- Markdig AST 解析后立即压平为 PaperTodo 自己的 `MarkdownSemanticSnapshot`；snapshot 持有当前 lines / spans / links 和连续 buffer + per-line range 的 compact span/link 行索引。`lineStarts` 只在 parse / derived-index 重建时临时生成并使用，不再作为 snapshot 长期状态；live editor 也不长期持有 AST。
+- pipeline 刻意保持最小：precise source location + strikethrough + task list；PaperTodo 既有 bare HTTP(S)、inline HTML 白名单、图片协议等兼容边界在 snapshot/host 层显式处理，不直接启用整包 advanced extensions。
+- syntax fading 不修改源码或撤销记录。Basic/Enhanced 保持源码布局；Full 的布局由元素层控制，普通正文仍走 AvalonEdit 原生文本排版。
+- **Full 档 = 编辑器内 WYSIWYG 块级编辑态**：`MarkdownSemanticPresentation` 在 Full 下把块级装饰「常开」与控制符「按活动块显灵」结合。无需留白/缩进的控制符（ATX 标题 `#`、行内 `**`/`*`/`~~`/反引号、链接 `[]()` 非 label 部分、HTML 标签、转义反斜杠）由 `SyntaxCollapseElementGenerator` 在元素层塌缩为 ~0 宽单列（源码仍留在 Document/undo，不参与排版、内容紧凑重排）；任务 `[ ]`/`[x]`、无序列表 `-`/`*`/`+`、引用 `>` 由 `MarkerSlotElementGenerator` 持有稳定槽位，前缀空白和有序列表仍按原生文本排版；围栏等整行标记保留行高。光标所在块的控制符依 `MarkdownSemanticReveal` 纯判定显灵供源编辑；失焦进入整篇只读渲染。不建第二份 rendered document、不做 HTML/DOM/WebView，也不建 source→rendered offset mapping，仍受 D-019 / D-026 约束。Markdown 表格不在当前语法面内。
+- Full 固定槽位对应的引用竖线直接读取 TextView 的实际坐标；有序列表的续行对齐及 Basic/Enhanced 定位保持原行为。省略 `>` 的惰性续行由 `QuoteIndentElement` 占位，并与真实引用共用“引用槽宽 + 原生空格宽”；该元素仍可合并消费同偏移的塌缩语法，保持一份源码和光标边界。
+- 图片 `i:` 协议、URL 打开白名单、原生保存仍属于 PaperTodo host concern；图片是否位于 code/container 等 Markdown 语义由同一 Markdig snapshot 决定。启动图片 GC 额外采用保守保护扫描，允许多保留但不因 parser 分歧误删 blob。
+- `MarkdownFencedCodeScanner` 只保留在“边界发现/受限预览”角色：Edge Mini 的有限导航近似以及大 Note incremental fence-window discovery 可以使用；它不是正文、持久化或数据回收的 Markdown authority，也不扩展成第二套 container-aware Markdown parser。

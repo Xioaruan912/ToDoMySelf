@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+<resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+<resheader name="version"><value>2.0</value></resheader>
+  <data name="Forgot" xml:space="preserve"><value>忘れた</value></data>
+  <data name="Fuzzy" xml:space="preserve"><value>あいまい</value></data>
+  <data name="Remembered" xml:space="preserve"><value>覚えている</value></data>
+  <data name="ManageReading" xml:space="preserve"><value>読書項目</value></data>
+  <data name="ReadingDetails" xml:space="preserve"><value>進捗と復習</value></data>
+  <data name="ReadingProgress" xml:space="preserve"><value>進捗（章・ページ）</value></data>
+  <data name="LinkedNote" xml:space="preserve"><value>関連ノート</value></data>
+  <data name="NoLinkedNote" xml:space="preserve"><value>関連付けなし</value></data>
+  <data name="MissingLinkedNote" xml:space="preserve"><value>この端末にノートがありません</value></data>
+  <data name="OpenLinkedNote" xml:space="preserve"><value>ノートを開く</value></data>
+  <data name="PauseReview" xml:space="preserve"><value>復習通知を一時停止</value></data>
+  <data name="SnoozeTomorrow" xml:space="preserve"><value>明日復習</value></data>
+  <data name="SnoozeThree" xml:space="preserve"><value>3日後に復習</value></data>
+  <data name="SnoozeSeven" xml:space="preserve"><value>7日後に復習</value></data>
+  <data name="ResumeReview" xml:space="preserve"><value>復習を再開</value></data>
+  <data name="ReviewPaused" xml:space="preserve"><value>復習を一時停止中</value></data>
+  <data name="ReviewDeferred" xml:space="preserve"><value>復習を{0}に延期</value></data>
+  <data name="NextStep" xml:space="preserve"><value>次の読書を計画</value></data>
+  <data name="NextStepTitle" xml:space="preserve"><value>次の読書名</value></data>
+  <data name="NextStepAdded" xml:space="preserve"><value>{0}の読書に追加</value></data>
+  <data name="ReadingSaved" xml:space="preserve"><value>読書情報を保存しました</value></data>
+  <data name="ReadingConflict" xml:space="preserve"><value>別の場所で更新されました。入力を保持しています。再保存すると名前・進捗・関連ノートを上書きします。</value></data>
+  <data name="FeedbackHint" xml:space="preserve"><value>忘れた：明日再試行。あいまい：次の間隔を短縮。覚えている：通常の間隔。</value></data>
+  <data name="Back" xml:space="preserve"><value>戻る</value></data>
+  <data name="OptionalUrl" xml:space="preserve"><value>リンク（任意）</value></data>
+  <data name="OverdueReading" xml:space="preserve"><value>以前の読書</value></data>
+  <data name="EntryRemoved" xml:space="preserve"><value>この読書は削除されました。入力を保持しています。編集を解除して再追加できます。</value></data>
+  <data name="Dashboard" xml:space="preserve"><value>読書の足跡</value></data>
+  <data name="ReadingSettings" xml:space="preserve"><value>読書と同期</value></data>
+  <data name="History" xml:space="preserve"><value>日別の記録</value></data>
+  <data name="ReviewSettings" xml:space="preserve"><value>間隔を空けた復習</value></data>
+  <data name="ReviewScheduleHint" xml:space="preserve"><value>標準は読後1、3、7、14、30日。遅れた場合は実施日から次回を計算。間隔は変更できます。</value></data>
+  <data name="ReviewIntervals" xml:space="preserve"><value>復習間隔（日）</value></data>
+  <data name="InvalidReviewIntervals" xml:space="preserve"><value>1〜3650の増加する日数をカンマ区切りで最大12個入力してください。</value></data>
+  <data name="ReviewHistory" xml:space="preserve"><value>復習記録</value></data>
+  <data name="EmptyReviews" xml:space="preserve"><value>この日の復習記録はありません。</value></data>
+  <data name="DueReviews" xml:space="preserve"><value>復習待ち · {0}</value></data>
+  <data name="ReviewDone" xml:space="preserve"><value>復習済み</value></data>
+  <data name="ReviewDueDate" xml:space="preserve"><value>読了 {0} · 復習予定 {1}</value></data>
+  <data name="TodayReading" xml:space="preserve"><value>今日の読書</value></data>
+  <data name="AddReading" xml:space="preserve"><value>読書を追加</value></data>
+  <data name="PaperName" xml:space="preserve"><value>論文名</value></data>
+  <data name="ArticleNameOrUrl" xml:space="preserve"><value>記事名またはURL</value></data>
+  <data name="TemplateHintShort" xml:space="preserve"><value>変更は今後の日付にのみ適用します。</value></data>
+  <data name="PasswordHintShort" xml:space="preserve"><value>空欄の場合は保存済みパスワードを使用。</value></data>
+  <data name="CredentialHint" xml:space="preserve"><value>パスワードは現在のWindowsユーザーで暗号化します。</value></data>
+  <data name="ReadingPaperLimit" xml:space="preserve"><value>ペーパー数が上限です。トレイから読書記録を開けます。</value></data>
+  <data name="Less" xml:space="preserve"><value>少</value></data>
+  <data name="More" xml:space="preserve"><value>多</value></data>
+  <data name="PreviousDay" xml:space="preserve"><value>前日</value></data>
+  <data name="NextDay" xml:space="preserve"><value>翌日</value></data>
+  <data name="SelectDate" xml:space="preserve"><value>日付を選択</value></data>
+  <data name="Kind" xml:space="preserve"><value>読書の種類</value></data>
+  <data name="AddPlaceholder" xml:space="preserve"><value>読書計画を追加…</value></data>
+  <data name="TemplateName" xml:space="preserve"><value>テンプレート名</value></data>
+  <data name="DayProgress" xml:space="preserve"><value>{0} / {1} 件完了</value></data>
+  <data name="DailyPlan" xml:space="preserve"><value>毎日の計画</value></data>
+  <data name="TodayProgress" xml:space="preserve"><value>今日の完了 {0}</value></data>
+  <data name="OpenReadingJournal" xml:space="preserve"><value>読書の足跡</value></data>
+  <data name="ReadingSyncLockUnsupported" xml:space="preserve"><value>排他WebDAVロックがありません。上書きを防ぐため同期を停止。</value></data>
+  <data name="TemplateRemoved" xml:space="preserve"><value>別の端末で削除済み。入力中の文章はコピー用に保持します。</value></data>
+  <data name="TemplateConflict" xml:space="preserve"><value>別の端末で変更済み。入力を保持。上書きするには再度保存してください。</value></data>
+  <data name="Title" xml:space="preserve"><value>毎日の読書</value></data>
+  <data name="Subtitle" xml:space="preserve"><value>毎日の読書を、目に見える記録に。</value></data>
+  <data name="Journal" xml:space="preserve"><value>読書記録</value></data>
+  <data name="Settings" xml:space="preserve"><value>計画と同期</value></data>
+  <data name="WeekSummary" xml:space="preserve"><value>今週 · 論文 {0} · 記事 {1} · 活動 {2} 日</value></data>
+  <data name="HeatTitle" xml:space="preserve"><value>読書の足跡 · 過去20週</value></data>
+  <data name="HeatHint" xml:space="preserve"><value>薄い → 濃い：完了0、1、2、3、4件以上。日付を選んで確認。</value></data>
+  <data name="DayCount" xml:space="preserve"><value>{0} · {1} 件完了</value></data>
+  <data name="Today" xml:space="preserve"><value>今日</value></data>
+  <data name="TodayPlan" xml:space="preserve"><value>今日の計画</value></data>
+  <data name="Paper" xml:space="preserve"><value>論文</value></data>
+  <data name="Article" xml:space="preserve"><value>記事</value></data>
+  <data name="TaskTitle" xml:space="preserve"><value>読書タイトル</value></data>
+  <data name="LinkHint" xml:space="preserve"><value>リンク（任意、http/https）</value></data>
+  <data name="Add" xml:space="preserve"><value>追加</value></data>
+  <data name="Cancel" xml:space="preserve"><value>取消</value></data>
+  <data name="Save" xml:space="preserve"><value>保存</value></data>
+  <data name="Delete" xml:space="preserve"><value>削除</value></data>
+  <data name="Edit" xml:space="preserve"><value>編集</value></data>
+  <data name="Open" xml:space="preserve"><value>開く</value></data>
+  <data name="Complete" xml:space="preserve"><value>完了</value></data>
+  <data name="CompletedOnDate" xml:space="preserve"><value>この日に完了</value></data>
+  <data name="EmptyDay" xml:space="preserve"><value>この日の計画はありません。下で追加できます。</value></data>
+  <data name="EmptyCompleted" xml:space="preserve"><value>完了記録はありません。</value></data>
+  <data name="TemplateTitle" xml:space="preserve"><value>毎日のテンプレート</value></data>
+  <data name="TemplateHint" xml:space="preserve"><value>変更は今後の日に適用。当日に削除した項目は再生成しません。</value></data>
+  <data name="Automatic" xml:space="preserve"><value>計画を毎日自動生成</value></data>
+  <data name="AddTemplate" xml:space="preserve"><value>テンプレート追加</value></data>
+  <data name="WebDavTitle" xml:space="preserve"><value>WebDAV 同期</value></data>
+  <data name="WebDavHint" xml:space="preserve"><value>読書計画と履歴のみ同期。パスワードと他のメモは送信しません。</value></data>
+  <data name="Server" xml:space="preserve"><value>サーバーURL（https://…/dav）</value></data>
+  <data name="Username" xml:space="preserve"><value>ユーザー名</value></data>
+  <data name="Folder" xml:space="preserve"><value>リモートフォルダー</value></data>
+  <data name="Password" xml:space="preserve"><value>パスワード</value></data>
+  <data name="PasswordHint" xml:space="preserve"><value>空欄なら保存済みを使用。再入力して保存すると変更。Windowsユーザー単位で暗号化。</value></data>
+  <data name="AutoSync" xml:space="preserve"><value>自動同期（変更後に同期、オフライン後に再試行）</value></data>
+  <data name="TestConnection" xml:space="preserve"><value>接続テスト</value></data>
+  <data name="SaveSettings" xml:space="preserve"><value>同期設定を保存</value></data>
+  <data name="SyncNow" xml:space="preserve"><value>今すぐ同期</value></data>
+  <data name="StorageHint" xml:space="preserve"><value>同期用のダウンロード・競合・履歴コピーは保存しません。既存の固定安全バックアップは維持。</value></data>
+  <data name="LocalOnly" xml:space="preserve"><value>ローカル保存済み · 計画と同期でWebDAVを設定</value></data>
+  <data name="Pending" xml:space="preserve"><value>ローカル保存済み · 同期待ち</value></data>
+  <data name="Syncing" xml:space="preserve"><value>同期中…</value></data>
+  <data name="Synced" xml:space="preserve"><value>同期済み</value></data>
+  <data name="Connected" xml:space="preserve"><value>接続成功（読書データは未送信）</value></data>
+  <data name="SettingsSaved" xml:space="preserve"><value>設定保存済み。「今すぐ同期」で同期できます。</value></data>
+  <data name="InvalidEntry" xml:space="preserve"><value>読書名を入力してください。リンクは任意です。入力する場合はhttp/httpsを使用してください。</value></data>
+  <data name="ReadingSyncInvalidSettings" xml:space="preserve"><value>HTTPS URL、ユーザー名、フォルダー、パスワードを確認してください。</value></data>
+  <data name="ReadingSyncCredentials" xml:space="preserve"><value>パスワードを復号できません。再入力して保存してください。</value></data>
+  <data name="ReadingSyncAuth" xml:space="preserve"><value>認証失敗または権限不足。認証情報を確認してください。</value></data>
+  <data name="ReadingSyncNetwork" xml:space="preserve"><value>ネットワークを利用できません。記録を保持し、後で再試行。</value></data>
+  <data name="ReadingSyncServer" xml:space="preserve"><value>サーバーが要求を拒否。記録は保持。権限と稼働状況を確認してください。</value></data>
+  <data name="ReadingSyncConflict" xml:space="preserve"><value>リモートデータが更新中。記録を保持し、後で同期してください。</value></data>
+  <data name="ReadingSyncInvalidData" xml:space="preserve"><value>データが不正・非互換・大きすぎます。上書きせず同期を停止。</value></data>
+  <data name="ReadingSyncMissingEtag" xml:space="preserve"><value>安全な更新に必要なETagがありません。上書きを防ぐため同期を停止。</value></data>
+</root>
