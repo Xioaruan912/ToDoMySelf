@@ -87,7 +87,7 @@ export function effectiveFold(paper, chapter, autoFold = false, markdownFolded =
   return paper.folded || (autoFold && paper.id === 'note');
 }
 
-// Small, bounded renderer for this interactive demo, NOT PaperTodo's WPF parser.
+// Small, bounded renderer for this interactive demo, NOT PaPerMySelf's WPF parser.
 // Tokenize before producing markup: text cannot introduce HTML or executable URLs.
 function inline(text) {
   const tokens = /(`[^`\n]+`|\*\*[^*\n]+\*\*|\[[^\]\n]+\]\(https?:\/\/[^\s)]+\))/g;

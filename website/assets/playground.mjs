@@ -310,7 +310,7 @@ function showPreview(id, keyboard = false) {
     const body=$('#preview-body');body.replaceChildren();
     if(id==='todo')body.innerHTML=todoMarkup(true);
     else if(id==='maker')body.innerHTML=`<p class="capsule-summary">${esc(t('makerPeek'))}</p>`;
-    else if(id==='script')body.innerHTML='<pre class="script-peek">!p<br>Write-Output "Hello, PaperTodo."</pre>';
+    else if(id==='script')body.innerHTML='<pre class="script-peek">!p<br>Write-Output "Hello, PaPerMySelf."</pre>';
     $('#preview-script-run').hidden=id!=='script';
     $('#preview-card').hidden=false;renderRail();mountLocation();syncChecks();renderScript();fadePreview(true);
     surfaces.play($$('.edge-slot'),before,endpoint,300);
@@ -360,7 +360,7 @@ function renderScript() {
   $('#script-editor').hidden = liveView()!=='script' || scriptPhase!=='note';
   $('#script-result').hidden = liveView()!=='script' || !['running','result'].includes(scriptPhase);
   $('#script-result').dataset.running=String(running);
-  $('#script-output').textContent=running?t('scriptRunning'):'Hello, PaperTodo.';
+  $('#script-output').textContent=running?t('scriptRunning'):'Hello, PaPerMySelf.';
   $('#script-next').dataset.phase = scriptPhase;
   $('#script-next .cycle-label').textContent = t(['running','result'].includes(scriptPhase) ? 'scriptBack' : 'scriptRun');
   $$('[data-script="run"]').forEach(b=>{b.disabled=running;b.setAttribute('aria-label',t(running?'scriptRunning':'scriptRun'));b.title=t(running?'scriptRunning':'scriptRun');});
@@ -506,7 +506,7 @@ function changeLanguage(value) {
   $$('[data-label]').forEach(node => {node.setAttribute('aria-label', t(node.dataset.label)); if (node.tagName === 'BUTTON') node.title = t(node.dataset.label);});
   $('#language').textContent = value === 'zh' ? 'EN' : '中文';
   $('#language').setAttribute('aria-label', value === 'zh' ? 'Switch to English' : '切换到中文');
-  $('.guide-link').href = `https://github.com/snownico0722/PaperTodo/blob/main/doc/USER_GUIDE${value === 'en' ? '.en' : ''}.md`;
+  $('.guide-link').href = `https://github.com/Xioaruan912/ToDoMySelf/blob/main/doc/USER_GUIDE${value === 'en' ? '.en' : ''}.md`;
   $('#dark-toggle').setAttribute('aria-checked',String(state.dark));
   try {localStorage.setItem('papertodo-lang', value);} catch {}
   try {const url = new URL(location.href); url.searchParams.set('lang', value); history.replaceState(null,'',url);} catch {}
