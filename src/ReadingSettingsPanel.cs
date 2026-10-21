@@ -13,7 +13,7 @@ internal sealed class ReadingSettingsPanel : ContentControl
     internal ReadingSettingsPanel(AppController controller)
     {
         _controller = controller;
-        Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/PaperTodo;component/src/ReadingWindow.Styles.xaml", UriKind.Relative) });
+        Resources.MergedDictionaries.Add(ReadingWindowStyles.Create());
         RefreshTheme(); Content = BuildSettings(); ReadingControls.RefreshSelectControls(this); RefreshStatus();
     }
     internal void RefreshTheme() => ReadingControls.ApplyTheme(this, _controller);

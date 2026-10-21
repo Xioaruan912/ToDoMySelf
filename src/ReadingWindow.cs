@@ -28,7 +28,7 @@ internal sealed class ReadingWindow : Window
         FontFamily = AppTypography.UiFontFamily; FontSize = AppTypography.Scale(13); Language = AppTypography.Language;
         UseLayoutRounding = true; SnapsToDevicePixels = true;
         SetResourceReference(BackgroundProperty, "ReadingPaper"); SetResourceReference(ForegroundProperty, "ReadingInk");
-        Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("/PaperTodo;component/src/ReadingWindow.Styles.xaml", UriKind.Relative) });
+        Resources.MergedDictionaries.Add(ReadingWindowStyles.Create());
         RefreshTheme();
         var body = new StackPanel { Margin = new Thickness(20, 14, 20, 16) };
         var header = new DockPanel();
