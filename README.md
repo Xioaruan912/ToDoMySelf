@@ -4,7 +4,7 @@
 
 PaPerMySelf is a Windows desktop-paper application based on [snownico0722/PaperTodo](https://github.com/snownico0722/PaperTodo). It preserves the original WPF UI, themes, controls and animations, and adds daily reading, spaced review, reading synchronization and ordinary Todo priority.
 
-Current version: **1.0.0**.
+Current version: **1.0.1**.
 
 ## Features
 
@@ -42,7 +42,7 @@ dotnet build PaPerMySelf.csproj -c Release
 
 `global.json` permits stable .NET 10 feature-band updates. The launcher and publisher prefer dotnet on PATH; `-DotNetPath 'C:/path/to/dotnet.exe'` is also supported. A private developer SDK directory is only a fallback, not a project dependency.
 
-Development output is `输出/PaPerMySelf-v1.0.0/`. The development application uses the separate `PaPerMySelf` instance/configuration namespace and does not directly use the installed desktop Todo app's data directory.
+Development output is `输出/PaPerMySelf-v1.0.1/`. The development application uses the separate `PaPerMySelf` instance/configuration namespace and does not directly use the installed desktop Todo app's data directory.
 
 ## Publish locally
 
@@ -108,7 +108,7 @@ Required Notice: PaperTodo Copyright © 2026 snownico0722. PaperTodo is licensed
 
 PaPerMySelf 是基于 [snownico0722/PaperTodo](https://github.com/snownico0722/PaperTodo) 的 Windows 桌面粉纸应用，保留原项目的 WPF 界面、主题、控件与动画，并增加每日阅读、间隔复习、阅读同步和普通待办优先级等功能。
 
-当前版本：**1.0.0**。
+当前版本：**1.0.1**。
 
 ![桌面纸片](assets/Home.jpg)
 
@@ -148,7 +148,7 @@ dotnet build PaPerMySelf.csproj -c Release
 
 `global.json` 允许稳定版 .NET 10 的功能带更新。启动器和发布脚本优先使用 PATH 中的 dotnet，也支持 `-DotNetPath 'C:/path/to/dotnet.exe'`；仓库内的私有 SDK 目录只是回退，不是项目依赖。
 
-开发输出位于 `输出/PaPerMySelf-v1.0.0/`。开发实例使用独立的 `PaPerMySelf` 单实例与配置命名空间，不会直接读写已安装的桌面 Todo 数据目录。
+开发输出位于 `输出/PaPerMySelf-v1.0.1/`。开发实例使用独立的 `PaPerMySelf` 单实例与配置命名空间，不会直接读写已安装的桌面 Todo 数据目录。
 
 ## 本地打包
 

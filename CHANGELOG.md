@@ -8,6 +8,10 @@ This log is written for general and power users alike. It focuses on user-facing
 
 ---
 
+### v1.0.1
+
+- Fixed a crash when opening the reading dashboard or the Reading & sync settings: WPF pack URIs still referenced the old `PaperTodo` assembly name.
+
 ### v1.0.0
 
 Initial PaPerMySelf release, based on PaperTodo 4.0.0-beta1.
