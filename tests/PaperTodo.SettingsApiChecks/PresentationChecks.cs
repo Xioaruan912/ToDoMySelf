@@ -148,9 +148,10 @@ internal static partial class Program
         Check(activated.IsVisible && activated.IsCollapsed, "Activate reveals without forcing expansion.");
         api.ExpandPaper("todo", activate: false);
         Check(todo.IsVisible && !todo.IsCollapsed && todo.Items.Single().Text == "keep task", "Cross-paper controls support Todo without modifying its items.");
+        var countBeforeMissing = papers.Count;
         Throws<PaperTodoPluginException>(() => api.ShowPaper("missing"), "paper_not_found");
         Throws<PaperTodoPluginException>(() => api.ShowPaper(" "), "invalid_params");
-        Check(papers.Count == 3, "Missing IDs never create papers.");
+        Check(papers.Count == countBeforeMissing, "Missing IDs never create papers.");
         c.State.UseCapsuleMode = false;
         Throws<PaperTodoPluginException>(() => api.CollapsePaper("note"), "presentation_unavailable");
         Check(!note.IsCollapsed && !c.State.UseCapsuleMode, "Unavailable presentation neither mutates the paper nor enables a feature.");
@@ -228,7 +229,7 @@ internal static partial class Program
         var windows = ReadField<Dictionary<string, PaperWindow>>(c, "_windows");
         Check(note.IsVisible && windows["note"].IsVisible && !windows["note"].IsClosed,
             "A stale hide animation cannot withdraw a later MCP show request.");
-        Check(note.Content == "keep note" && todo.Items.Single().Text == "keep task" && papers.Count == 3,
+        Check(note.Content == "keep note" && todo.Items.Single().Text == "keep task" && papers.Count == countBeforeMissing,
             "Presentation operations leave all content and paper identities intact.");
         current = false;
         Throws<PaperTodoPluginException>(() => api.HidePaper("note"), "session_closed");
